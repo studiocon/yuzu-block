@@ -90,6 +90,60 @@ describe("aggregateToBlocks", () => {
     expect(scene.maxHeight).toBe(20);
   });
 
+  it("returns zero blocks (and does not throw) when no bucket is sufficient", () => {
+    const agg: RingAggregate = {
+      year: 2026,
+      unit: "week",
+      minCohort: 50,
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      buckets: [
+        {
+          index: 0,
+          start: "2026-01-05",
+          sufficient: false,
+          recordCount: null,
+          wordCount: null,
+          silenceDayRatio: null,
+        },
+        {
+          index: 1,
+          start: "2026-01-12",
+          sufficient: false,
+          recordCount: null,
+          wordCount: null,
+          silenceDayRatio: null,
+        },
+      ],
+    };
+    const scene = aggregateToBlocks(agg);
+    expect(scene.blocks).toEqual([]);
+    expect(scene.extent).toBe(2);
+  });
+
+  it("guarantees at least one filled cell even when silenceDayRatio is near 1", () => {
+    const agg: RingAggregate = {
+      year: 2026,
+      unit: "week",
+      minCohort: 50,
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      buckets: [
+        {
+          index: 3,
+          start: "2026-01-26",
+          sufficient: true,
+          recordCount: 100,
+          wordCount: 8000,
+          silenceDayRatio: 0.999,
+        },
+      ],
+    };
+    const scene = aggregateToBlocks(agg);
+    const ring3Blocks = scene.blocks.filter(
+      (b) => Math.max(Math.abs(b.x), Math.abs(b.z)) === 3,
+    );
+    expect(ring3Blocks.length).toBeGreaterThan(0);
+  });
+
   it("ring 0 is the single cell at the origin", () => {
     const agg = fullYearAggregate("blocks-ring-zero");
     const scene = aggregateToBlocks(agg);

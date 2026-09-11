@@ -30,6 +30,11 @@ function unitFromHash(key: string): number {
  * Cells within ring r that are "filled" for this bucket, chosen
  * deterministically from a per-cell hash. Guarantees at least one filled
  * cell whenever fillFraction > 0.
+ *
+ * The hash key is keyed by year:ring:cell only (no date, no request
+ * timestamp), so a given ring's silhouette is stable across snapshots
+ * taken on different days within the same year — only which cells are
+ * present at all, plus heights and colors, follow the underlying data.
  */
 function filledCells(
   year: number,

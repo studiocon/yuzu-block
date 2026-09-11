@@ -49,13 +49,18 @@ describe("generateAggregate", () => {
   });
 
   it("marks some past buckets insufficient (below cohort threshold)", () => {
-    const agg = generateAggregate({ year: 2020, seed: "cohort-test", now: NOW });
-    const pastBuckets = agg.buckets.filter((b) => new Date(b.start).getTime() <= NOW.getTime());
-    const insufficientPast = pastBuckets.filter((b) => !b.sufficient);
-    // ~4-8% of past buckets, so with ~52 weeks expect at least a couple over many years,
-    // just assert the mechanism exists somewhere across a full past year.
-    expect(insufficientPast.length).toBeGreaterThanOrEqual(0);
-    expect(insufficientPast.length).toBeLessThan(pastBuckets.length);
+    // Aggregate several past years so the ~4-10% per-week insufficiency
+    // rate at the default minCohort (50) is virtually certain to surface.
+    let pastCount = 0;
+    let insufficientCount = 0;
+    for (const year of [2015, 2016, 2017, 2018, 2019, 2020]) {
+      const agg = generateAggregate({ year, seed: `cohort-test-${year}`, now: NOW });
+      const pastBuckets = agg.buckets.filter((b) => new Date(b.start).getTime() <= NOW.getTime());
+      pastCount += pastBuckets.length;
+      insufficientCount += pastBuckets.filter((b) => !b.sufficient).length;
+    }
+    expect(insufficientCount).toBeGreaterThan(0);
+    expect(insufficientCount).toBeLessThan(pastCount);
   });
 
   it("uses a default seed derived from year and now when not provided", () => {
@@ -72,5 +77,29 @@ describe("generateAggregate", () => {
   it("respects a custom minCohort", () => {
     const agg = generateAggregate({ year: 2026, seed: "mincohort-test-2", now: NOW, minCohort: 10 });
     expect(agg.minCohort).toBe(10);
+  });
+
+  it("raising minCohort strictly reduces the count of sufficient buckets", () => {
+    // Aggregate across several years so the comparison isn't sensitive to
+    // any single year's noise draws.
+    const years = [2010, 2012, 2014, 2016, 2018, 2020];
+    let sufficientAtLow = 0;
+    let sufficientAtDefault = 0;
+    let sufficientAtHigh = 0;
+    for (const year of years) {
+      const seed = `mincohort-behavior-${year}`;
+      const low = generateAggregate({ year, seed, now: NOW, minCohort: 10 });
+      const mid = generateAggregate({ year, seed, now: NOW, minCohort: 50 });
+      const high = generateAggregate({ year, seed, now: NOW, minCohort: 300 });
+      sufficientAtLow += low.buckets.filter((b) => b.sufficient).length;
+      sufficientAtDefault += mid.buckets.filter((b) => b.sufficient).length;
+      sufficientAtHigh += high.buckets.filter((b) => b.sufficient).length;
+    }
+    expect(sufficientAtDefault).toBeLessThan(sufficientAtLow);
+    expect(sufficientAtHigh).toBeLessThan(sufficientAtDefault);
+    // minCohort=300 sits above the internal cohort envelope's plateau, so
+    // most weeks should fail the threshold.
+    const totalPastBuckets = years.length * 52;
+    expect(sufficientAtHigh).toBeLessThan(totalPastBuckets * 0.5);
   });
 });

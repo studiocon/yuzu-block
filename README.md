@@ -1,10 +1,10 @@
 # yuzu-block (working title)
 
 An open-source public site and auth-free MCP server that render anonymous,
-aggregate-only data from a voice journal as a 3D block sculpture. This repo
+aggregate-only data from a voice journal built on ElevenLabs Scribe
+transcription as a 3D block sculpture, maintained by STUDIO CON. This repo
 is independent from the voice journal's own codebase; it consumes aggregate
-numbers only. The journal is a voice journal built on ElevenLabs Scribe
-transcription, maintained by STUDIO CON.
+numbers only.
 
 ## What it shows / what it never shows
 
@@ -167,13 +167,14 @@ seeded by year and date. A real data source must return the same
 
 The scene is a snapshot: `SceneSpec` is generated server-side on every
 request and handed to the client once. Nothing animates except a slow,
-continuous camera orbit. Colors are the four brand tokens defined in
-`lib/palette.ts`:
+continuous camera orbit. Blocks are unlit, per-face tints of the two block
+tokens defined in `lib/palette.ts` — side faces are fixed, darker
+multiples of the same top-face color, not a separate token or a lighting
+effect. Colors actually rendered:
 
 - `YUZU_YELLOW` `#F5D84A`
 - `YUZU_ZEST` `#E8A020`
-- `YUZU_WHITE` `#FAFAF5`
-- `INK` `#1A1A2E`
+- `YUZU_WHITE` `#FAFAF5` (background)
 
 ## ElevenLabs
 

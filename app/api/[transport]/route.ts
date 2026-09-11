@@ -1,13 +1,12 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
-import { generateAggregate, currentYear } from "@/lib/mock-aggregate";
+import { generateAggregate } from "@/lib/mock-aggregate";
+import { MIN_RING_YEAR, validateRingYear } from "@/lib/ring-year";
 
 // mcp-handler resolves endpoints from the dynamic [transport] segment
 // combined with basePath below: basePath "/api" + this file living at
 // app/api/[transport]/route.ts gives the Streamable HTTP endpoint at
 // /api/mcp (transport === "mcp").
-
-const MIN_YEAR = 2026;
 
 const handler = createMcpHandler(
   (server) => {
@@ -21,7 +20,7 @@ const handler = createMcpHandler(
           "are null. No per-user data exists. Currently backed by a deterministic mock " +
           "generator.",
         inputSchema: {
-          year: z.number().int().describe(`Year to fetch, ${MIN_YEAR} or later.`),
+          year: z.number().int().describe(`Year to fetch, ${MIN_RING_YEAR} or later.`),
         },
         annotations: {
           readOnlyHint: true,
@@ -29,16 +28,11 @@ const handler = createMcpHandler(
         },
       },
       async ({ year }) => {
-        const maxYear = currentYear();
-        if (year < MIN_YEAR || year > maxYear) {
+        const validation = validateRingYear(year);
+        if (!validation.ok) {
           return {
             isError: true,
-            content: [
-              {
-                type: "text",
-                text: `year must be between ${MIN_YEAR} and ${maxYear}, got ${year}.`,
-              },
-            ],
+            content: [{ type: "text", text: validation.message }],
           };
         }
 
@@ -50,7 +44,7 @@ const handler = createMcpHandler(
     );
   },
   {
-    serverInfo: { name: "yuzu-block", version: "0.1.0" },
+    serverInfo: { name: "yuzu-block (working title)", version: "0.1.0" },
   },
   {
     basePath: "/api",

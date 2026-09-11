@@ -53,6 +53,19 @@ function envelope(weekIndex: number, totalWeeks: number): number {
   return 180 + 440 * ramp;
 }
 
+/**
+ * Mean size of the internal, aggregate-only cohort backing a bucket
+ * (never exposed in `WeekBucket` — it exists only to decide `sufficient`).
+ * Rises slower than `envelope`, so a meaningful share of early-year weeks
+ * sit close to typical anonymity thresholds.
+ */
+function cohortEnvelope(weekIndex: number, totalWeeks: number): number {
+  const t = weekIndex / Math.max(1, totalWeeks - 1);
+  const k = 4;
+  const ramp = 1 / (1 + Math.exp(-k * (t - 0.5)));
+  return 42 + 158 * ramp;
+}
+
 export interface GenerateAggregateOptions {
   year: number;
   seed?: string;
@@ -72,11 +85,19 @@ export function generateAggregate(opts: GenerateAggregateOptions): RingAggregate
   const buckets: WeekBucket[] = starts.map((start, index) => {
     const isFuture = start.getTime() > now.getTime();
 
-    // Deterministic ~6% of past buckets fail the anonymity threshold.
-    const cohortRoll = mulberry32(hashString(`${seed}:cohort:${index}`))();
-    const cohortInsufficient = !isFuture && cohortRoll < 0.06;
+    // Internal, aggregate-only cohort size for this bucket — never exposed
+    // in the output shape. Determines whether the bucket clears `minCohort`.
+    const cohortRng = mulberry32(hashString(`${seed}:cohort-value:${index}`));
+    const cohortMean = cohortEnvelope(index, totalWeeks);
+    const cohortNoiseA = cohortRng();
+    const cohortNoiseB = cohortRng();
+    const cohortGaussianLike = (cohortNoiseA + cohortNoiseB - 1) * 0.7; // roughly in [-0.7, 0.7]
+    const activeCohort = Math.max(
+      5,
+      Math.min(500, Math.round(cohortMean * (1 + cohortGaussianLike))),
+    );
 
-    const sufficient = !isFuture && !cohortInsufficient;
+    const sufficient = !isFuture && activeCohort >= minCohort;
 
     if (!sufficient) {
       return {
