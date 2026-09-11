@@ -37,6 +37,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(new THREE.Color(YUZU_WHITE), 1);
+    renderer.toneMapping = THREE.NoToneMapping;
 
     const three = buildScene(scene);
     const { threeScene, camera, updateCameraForViewport } = three;
@@ -102,33 +103,22 @@ interface BuiltScene {
 function buildScene(scene: SceneSpec): BuiltScene {
   const threeScene = new THREE.Scene();
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
-  threeScene.add(ambientLight);
-
-  const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  keyLight.position.set(1, 2, 0.6);
-  threeScene.add(keyLight);
-
-  const fillLight = new THREE.DirectionalLight(0xffffff, 0.25);
-  fillLight.position.set(-1, 0.5, -0.8);
-  threeScene.add(fillLight);
-
-  const geometry = new THREE.BoxGeometry(BLOCK_SCALE, BLOCK_SCALE, BLOCK_SCALE);
-  const yellowMaterial = new THREE.MeshLambertMaterial({ color: new THREE.Color(YUZU_YELLOW) });
-  const zestMaterial = new THREE.MeshLambertMaterial({ color: new THREE.Color(YUZU_ZEST) });
+  const sharedMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
+  const yellowGeometry = shadedBoxGeometry(YUZU_YELLOW);
+  const zestGeometry = shadedBoxGeometry(YUZU_ZEST);
 
   const yellowBlocks = scene.blocks.filter((b) => b.color === "yellow");
   const zestBlocks = scene.blocks.filter((b) => b.color === "zest");
 
-  const yellowMesh = buildInstancedMesh(geometry, yellowMaterial, yellowBlocks);
-  const zestMesh = buildInstancedMesh(geometry, zestMaterial, zestBlocks);
+  const yellowMesh = buildInstancedMesh(yellowGeometry, sharedMaterial, yellowBlocks);
+  const zestMesh = buildInstancedMesh(zestGeometry, sharedMaterial, zestBlocks);
   if (yellowMesh) threeScene.add(yellowMesh);
   if (zestMesh) threeScene.add(zestMesh);
 
   const lookAtHeight = scene.maxHeight / 2;
 
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
-  const elevation = THREE.MathUtils.degToRad(35);
+  const elevation = THREE.MathUtils.degToRad(42);
   const halfWidth = Math.max(1, scene.extent);
 
   function updateCameraForViewport(aspect: number) {
@@ -152,9 +142,9 @@ function buildScene(scene: SceneSpec): BuiltScene {
   updateCameraForViewport(1);
 
   function dispose() {
-    geometry.dispose();
-    yellowMaterial.dispose();
-    zestMaterial.dispose();
+    yellowGeometry.dispose();
+    zestGeometry.dispose();
+    sharedMaterial.dispose();
     yellowMesh?.dispose();
     zestMesh?.dispose();
   }
@@ -162,9 +152,40 @@ function buildScene(scene: SceneSpec): BuiltScene {
   return { threeScene, camera, lookAtHeight, updateCameraForViewport, dispose };
 }
 
+// BoxGeometry (default 1x1x1 segment) emits exactly 24 vertices, 4 per
+// face, in the fixed order +x, -x, +y, -y, +z, -z — verified by reading
+// the buildPlane() call sequence in three's BoxGeometry source
+// (node_modules/three/src/geometries/BoxGeometry.js), which calls
+// buildPlane for px, nx, py, ny, pz, nz in that order with no other faces
+// or vertex reordering in between.
+const FACE_SHADE = [0.86, 0.86, 1.0, 0.6, 0.74, 0.74]; // +x, -x, +y, -y, +z, -z
+const VERTS_PER_FACE = 4;
+
+function shadedBoxGeometry(hex: string): THREE.BoxGeometry {
+  const geometry = new THREE.BoxGeometry(BLOCK_SCALE, BLOCK_SCALE, BLOCK_SCALE);
+  const vertexCount = geometry.attributes.position.count;
+  const colors = new Float32Array(vertexCount * 3);
+
+  const base = new THREE.Color(hex);
+  const shaded = new THREE.Color();
+
+  for (let face = 0; face < FACE_SHADE.length; face++) {
+    shaded.copy(base).multiplyScalar(FACE_SHADE[face]);
+    for (let v = 0; v < VERTS_PER_FACE; v++) {
+      const vertexIndex = face * VERTS_PER_FACE + v;
+      colors[vertexIndex * 3] = shaded.r;
+      colors[vertexIndex * 3 + 1] = shaded.g;
+      colors[vertexIndex * 3 + 2] = shaded.b;
+    }
+  }
+
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  return geometry;
+}
+
 function buildInstancedMesh(
   geometry: THREE.BoxGeometry,
-  material: THREE.MeshLambertMaterial,
+  material: THREE.MeshBasicMaterial,
   blocks: Block[],
 ): THREE.InstancedMesh | null {
   if (blocks.length === 0) return null;

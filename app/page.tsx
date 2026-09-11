@@ -8,7 +8,7 @@ export default function Home() {
   const now = new Date();
   const year = currentYear(now);
   const aggregate = generateAggregate({ year, now });
-  const scene = aggregateToBlocks(aggregate);
+  const scene = aggregateToBlocks(aggregate, { maxHeight: 20 });
 
   return (
     <main style={{ position: "fixed", inset: 0 }}>
