@@ -1,0 +1,129 @@
+import { hashString, mulberry32 } from "./seed";
+import type { RingAggregate, WeekBucket } from "./types";
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+function toISODate(d: Date): string {
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+
+/** Monday (UTC, ISO-style, 0=Monday..6=Sunday) on or before the given date. */
+function mondayOnOrBefore(d: Date): Date {
+  const dow = (d.getUTCDay() + 6) % 7;
+  const out = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  out.setUTCDate(out.getUTCDate() - dow);
+  return out;
+}
+
+function addDays(d: Date, days: number): Date {
+  const out = new Date(d.getTime());
+  out.setUTCDate(out.getUTCDate() + days);
+  return out;
+}
+
+/** Monday-start week boundaries (as Date, UTC midnight) covering `year`. */
+function weekStarts(year: number): Date[] {
+  const jan1 = new Date(Date.UTC(year, 0, 1));
+  const dec31 = new Date(Date.UTC(year, 11, 31));
+  const starts: Date[] = [];
+  let cursor = mondayOnOrBefore(jan1);
+  while (cursor.getTime() <= dec31.getTime()) {
+    starts.push(cursor);
+    cursor = addDays(cursor, 7);
+  }
+  return starts;
+}
+
+export function currentYear(now: Date = new Date()): number {
+  return now.getUTCFullYear();
+}
+
+/**
+ * Smooth yearly envelope: low early in the year, rising through spring,
+ * plateauing for the back half. Returns an approximate mean recordCount
+ * before per-week noise is applied.
+ */
+function envelope(weekIndex: number, totalWeeks: number): number {
+  const t = weekIndex / Math.max(1, totalWeeks - 1);
+  // Logistic ramp from ~180 up to a plateau around ~620, centered near t=0.3.
+  const k = 12;
+  const ramp = 1 / (1 + Math.exp(-k * (t - 0.3)));
+  return 180 + 440 * ramp;
+}
+
+export interface GenerateAggregateOptions {
+  year: number;
+  seed?: string;
+  now?: Date;
+  minCohort?: number;
+}
+
+export function generateAggregate(opts: GenerateAggregateOptions): RingAggregate {
+  const now = opts.now ?? new Date();
+  const minCohort = opts.minCohort ?? 50;
+  const seed = opts.seed ?? `${opts.year}-${toISODate(now)}`;
+  const rootSeedNum = hashString(seed);
+
+  const starts = weekStarts(opts.year);
+  const totalWeeks = starts.length;
+
+  const buckets: WeekBucket[] = starts.map((start, index) => {
+    const isFuture = start.getTime() > now.getTime();
+
+    // Deterministic ~6% of past buckets fail the anonymity threshold.
+    const cohortRoll = mulberry32(hashString(`${seed}:cohort:${index}`))();
+    const cohortInsufficient = !isFuture && cohortRoll < 0.06;
+
+    const sufficient = !isFuture && !cohortInsufficient;
+
+    if (!sufficient) {
+      return {
+        index,
+        start: toISODate(start),
+        sufficient: false,
+        recordCount: null,
+        wordCount: null,
+        silenceDayRatio: null,
+      };
+    }
+
+    const rng = mulberry32((rootSeedNum ^ hashString(`${seed}:week:${index}`)) >>> 0);
+
+    const mean = envelope(index, totalWeeks);
+    // Lognormal-ish multiplicative noise.
+    const noiseA = rng();
+    const noiseB = rng();
+    const gaussianLike = (noiseA + noiseB - 1) * 0.35; // roughly in [-0.35, 0.35]
+    const recordCountRaw = mean * (1 + gaussianLike);
+    const recordCount = Math.max(20, Math.min(900, Math.round(recordCountRaw)));
+
+    const avgWords = 60 + rng() * 120; // 60..180
+    const wordNoise = 1 + (rng() - 0.5) * 0.3;
+    const wordCount = Math.max(1, Math.round(recordCount * avgWords * wordNoise));
+
+    // silenceDayRatio loosely inversely related to recordCount, within 0.05..0.65.
+    const normalizedLoad = Math.min(1, recordCount / 900);
+    const base = 0.65 - normalizedLoad * 0.5;
+    const silenceNoise = (rng() - 0.5) * 0.15;
+    const silenceDayRatio = Math.round(Math.min(0.65, Math.max(0.05, base + silenceNoise)) * 1000) / 1000;
+
+    return {
+      index,
+      start: toISODate(start),
+      sufficient: true,
+      recordCount,
+      wordCount,
+      silenceDayRatio,
+    };
+  });
+
+  return {
+    year: opts.year,
+    unit: "week",
+    minCohort,
+    generatedAt: now.toISOString(),
+    buckets,
+  };
+}
