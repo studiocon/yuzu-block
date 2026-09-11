@@ -130,7 +130,7 @@ function buildScene(scene: SceneSpec): BuiltScene {
     // for any rotation) and its full height, with a 5% margin.
     const footprintRadius = halfWidth * Math.SQRT2;
     const radius = Math.sqrt(footprintRadius ** 2 + (scene.maxHeight / 2) ** 2);
-    const distance = (radius / Math.sin(effectiveFov / 2)) * 1.05;
+    const distance = (radius / Math.sin(effectiveFov / 2)) * 0.78;
 
     const horizontalDistance = distance * Math.cos(elevation);
     const verticalDistance = distance * Math.sin(elevation);
