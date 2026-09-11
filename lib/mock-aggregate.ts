@@ -23,13 +23,22 @@ function addDays(d: Date, days: number): Date {
   return out;
 }
 
-/** Monday-start week boundaries (as Date, UTC midnight) covering `year`. */
+/** Monday of the ISO week containing Jan 4 of `year` (ISO week 1's start). */
+function isoWeek1Monday(year: number): Date {
+  return mondayOnOrBefore(new Date(Date.UTC(year, 0, 4)));
+}
+
+/**
+ * Monday-start ISO week boundaries (as Date, UTC midnight) for `year`:
+ * bucket 0 is ISO week 1 (the week containing Jan 4), continuing weekly up
+ * to but excluding ISO week 1 of `year + 1`. Yields 52 or 53 buckets.
+ */
 function weekStarts(year: number): Date[] {
-  const jan1 = new Date(Date.UTC(year, 0, 1));
-  const dec31 = new Date(Date.UTC(year, 11, 31));
+  const first = isoWeek1Monday(year);
+  const end = isoWeek1Monday(year + 1);
   const starts: Date[] = [];
-  let cursor = mondayOnOrBefore(jan1);
-  while (cursor.getTime() <= dec31.getTime()) {
+  let cursor = first;
+  while (cursor.getTime() < end.getTime()) {
     starts.push(cursor);
     cursor = addDays(cursor, 7);
   }

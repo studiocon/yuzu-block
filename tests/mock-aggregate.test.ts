@@ -102,4 +102,17 @@ describe("generateAggregate", () => {
     const totalPastBuckets = years.length * 52;
     expect(sufficientAtHigh).toBeLessThan(totalPastBuckets * 0.5);
   });
+
+  it("enumerates ISO weeks correctly for every year 1990..2100", () => {
+    for (let year = 1990; year <= 2100; year++) {
+      const agg = generateAggregate({ year, seed: `iso-week-${year}`, now: NOW });
+      expect([52, 53]).toContain(agg.buckets.length);
+
+      const bucket0Start = new Date(`${agg.buckets[0].start}T00:00:00.000Z`);
+      const dec29PrevYear = new Date(Date.UTC(year - 1, 11, 29));
+      const jan4 = new Date(Date.UTC(year, 0, 4));
+      expect(bucket0Start.getTime()).toBeGreaterThanOrEqual(dec29PrevYear.getTime());
+      expect(bucket0Start.getTime()).toBeLessThanOrEqual(jan4.getTime());
+    }
+  });
 });

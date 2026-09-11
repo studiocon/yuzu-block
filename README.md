@@ -158,6 +158,10 @@ export interface RingAggregate {
 }
 ```
 
+Buckets are ISO weeks: Monday-start, week 1 is the week containing
+January 4, and a year has 52 or 53 of them. The reference upstream
+computes these boundaries in Asia/Tokyo.
+
 Anonymization policy: week-level granularity only. Buckets whose cohort
 falls below `minCohort` are returned with every numeric field set to `null`
 and `sufficient: false`. No per-user field exists anywhere in this shape, by
