@@ -2,7 +2,11 @@
   "name": "yuzu-block",
   "version": "0.1.0",
   "private": true,
+  "description": "Renders anonymous, aggregate-only voice-journal data as a 3D block sculpture, plus an auth-free MCP server serving the same aggregates.",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
