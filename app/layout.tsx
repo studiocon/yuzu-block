@@ -62,16 +62,27 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             {LEAD_COPY.en}
           </p>
           <p className="chrome-lead-ja" lang="ja">
-            {LEAD_COPY.ja}
+            {LEAD_COPY.ja[0]}
+            <br />
+            {LEAD_COPY.ja[1]}
           </p>
           <p className="chrome-lead-note" lang="ja">
             {LEAD_COPY.note}
           </p>
         </div>
         <footer className="chrome-footer">
-          <span>{FOOTER_COPY.left}</span>
-          <span lang="en">{FOOTER_COPY.center}</span>
-          <a href={FOOTER_COPY.rightHref} target="_blank" rel="noopener noreferrer">
+          <span className="chrome-footer-left">{FOOTER_COPY.left}</span>
+          <span className="chrome-footer-center" lang="en">
+            {FOOTER_COPY.centerLabel}
+            {"  "}
+            <span className="chrome-footer-path">{FOOTER_COPY.centerPath}</span>
+          </span>
+          <a
+            className="chrome-footer-right"
+            href={FOOTER_COPY.rightHref}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             {FOOTER_COPY.rightLabel}
           </a>
         </footer>

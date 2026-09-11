@@ -5,13 +5,14 @@
 
 export const LEAD_COPY = {
   en: "CARVED BY TIME",
-  ja: "頑張ったから増えるのではない。時間が経てば、刻まれる。",
+  ja: ["頑張ったから増えるのではない。", "時間が経てば、刻まれる。"],
   note: "全ユーザーの匿名集計。個人の声は含まれない。",
 };
 
 export const FOOTER_COPY = {
   left: "STUDIO CON © 2026",
-  center: "MCP  /api/mcp",
+  centerLabel: "MCP",
+  centerPath: "/api/mcp",
   rightLabel: "YUZU.STYLE →",
   rightHref: "https://yuzu.style",
 };

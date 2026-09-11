@@ -8,10 +8,22 @@ import type { Block, SceneSpec } from "@/lib/types";
 
 const BLOCK_SCALE = 0.96;
 
-// Nudges the framed sculpture upward so it clears the header/lead/footer
-// page chrome added around the canvas, without altering the camera's
-// actual position or target.
-const VIEW_OFFSET_PX = 35;
+// Safe-area insets (px) reserved for page chrome: the header sits above
+// TOP_INSET, and the lead+footer sit below (viewport height - BOTTOM_INSET).
+// The sculpture is fit and framed to stay clear of both bands.
+const TOP_INSET = 96;
+const BOTTOM_INSET_DESKTOP = 208;
+const BOTTOM_INSET_MOBILE = 232;
+const MOBILE_BREAKPOINT = 768;
+
+// Safety margin over the exact bounding-sphere fit to the safe area, so
+// the sculpture sits comfortably inside it rather than exactly touching
+// the boundary (verified numerically across several viewport sizes).
+const FIT_MARGIN = 1.05;
+
+function bottomInsetFor(width: number): number {
+  return width < MOBILE_BREAKPOINT ? BOTTOM_INSET_MOBILE : BOTTOM_INSET_DESKTOP;
+}
 
 export interface BlockSceneProps {
   scene: SceneSpec;
@@ -67,8 +79,17 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       const height = container!.clientHeight;
       renderer.setSize(width, height);
       camera.aspect = width / height;
-      updateCameraForViewport(width / height);
-      camera.setViewOffset(width, height, 0, -VIEW_OFFSET_PX, width, height);
+      updateCameraForViewport(width, height);
+
+      // Shift the rendered frame so its vertical center lands on the safe
+      // area's center rather than the full viewport's center. A positive
+      // offsetY moves the rendered content up the screen (verified against
+      // three's PerspectiveCamera.updateProjectionMatrix, which subtracts
+      // offsetY from the frustum's near-plane top — increasing offsetY
+      // pushes objects toward NDC +1, i.e. the top of the viewport).
+      const bottomInset = bottomInsetFor(width);
+      const offsetY = (bottomInset - TOP_INSET) / 2;
+      camera.setViewOffset(width, height, 0, offsetY, width, height);
       camera.updateProjectionMatrix();
     }
 
@@ -103,7 +124,7 @@ interface BuiltScene {
   threeScene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   lookAtHeight: number;
-  updateCameraForViewport: (aspect: number) => void;
+  updateCameraForViewport: (width: number, height: number) => void;
   dispose: () => void;
 }
 
@@ -128,16 +149,32 @@ function buildScene(scene: SceneSpec): BuiltScene {
   const elevation = THREE.MathUtils.degToRad(42);
   const halfWidth = Math.max(1, scene.extent);
 
-  function updateCameraForViewport(aspect: number) {
-    const vFovRad = THREE.MathUtils.degToRad(camera.fov);
-    const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * aspect);
-    const effectiveFov = Math.min(vFovRad, hFovRad);
+  // Bounding-sphere radius around the sculpture footprint (diagonal, safe
+  // for any auto-rotation angle) and its full height.
+  const footprintRadius = halfWidth * Math.SQRT2;
+  const radius = Math.sqrt(footprintRadius ** 2 + (scene.maxHeight / 2) ** 2);
 
-    // Bounding-sphere fit around the sculpture footprint (diagonal, safe
-    // for any rotation) and its full height, with a 5% margin.
-    const footprintRadius = halfWidth * Math.SQRT2;
-    const radius = Math.sqrt(footprintRadius ** 2 + (scene.maxHeight / 2) ** 2);
-    const distance = (radius / Math.sin(effectiveFov / 2)) * 0.78;
+  const vFovRad = THREE.MathUtils.degToRad(camera.fov);
+  const tanVHalf = Math.tan(vFovRad / 2);
+
+  function updateCameraForViewport(width: number, height: number) {
+    const aspect = width / height;
+    const bandHeight = Math.max(200, height - TOP_INSET - bottomInsetFor(width));
+
+    // Two independent pixel-space constraints on the sphere's apparent
+    // half-extent: the full width (nothing eats into it), and the safe
+    // vertical band between header and lead/footer (bandHeight, not the
+    // full viewport height). Each is expressed as a tangent of a half-angle
+    // through the camera's fixed vertical FOV — since the physical FOV
+    // always maps across the *full* render height, a smaller pixel budget
+    // (bandHeight) corresponds to a proportionally smaller tangent budget,
+    // not a proportionally smaller angle (tan, not the angle itself, is
+    // what's linear in near-plane/screen position).
+    const tanHHalf = tanVHalf * aspect;
+    const tanVBandHalf = tanVHalf * (bandHeight / height);
+    const thetaAllowed = Math.atan(Math.min(tanHHalf, tanVBandHalf));
+
+    const distance = (radius / Math.sin(thetaAllowed)) * FIT_MARGIN;
 
     const horizontalDistance = distance * Math.cos(elevation);
     const verticalDistance = distance * Math.sin(elevation);
@@ -145,8 +182,6 @@ function buildScene(scene: SceneSpec): BuiltScene {
     camera.position.set(0, lookAtHeight + verticalDistance, horizontalDistance);
     camera.lookAt(0, lookAtHeight, 0);
   }
-
-  updateCameraForViewport(1);
 
   function dispose() {
     yellowGeometry.dispose();

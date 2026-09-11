@@ -59,7 +59,7 @@ body {
   left: 0;
   bottom: 68px;
   z-index: 2;
-  max-width: 34ch;
+  max-width: 40ch;
   padding: 0 0 32px 32px;
   pointer-events: none;
 }
@@ -80,6 +80,8 @@ body {
   font-weight: 700;
   font-size: clamp(15px, 1.6vw, 20px);
   color: var(--ink);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .chrome-lead-note {
@@ -132,18 +134,38 @@ body {
   color: var(--yuzu-zest);
 }
 
+/* The footer's own uppercase transform would turn the literal MCP path
+   into "/API/MCP" — keep the path's casing untouched. */
+.chrome-footer-path {
+  text-transform: none;
+}
+
 @media (max-width: 768px) {
   .chrome-logo {
     height: 28px;
   }
 
   .chrome-lead {
-    bottom: 92px;
+    bottom: 116px;
     padding: 0 0 20px 20px;
     text-align: left;
   }
 
   .chrome-footer {
+    height: auto;
     padding: 14px 20px;
+  }
+
+  .chrome-footer-left {
+    order: 1;
+  }
+
+  .chrome-footer-right {
+    order: 2;
+  }
+
+  .chrome-footer-center {
+    order: 3;
+    flex-basis: 100%;
   }
 }
