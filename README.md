@@ -14,9 +14,13 @@ Shows weekly aggregate rings:
 - silence-day ratio → gaps in the ring
 - words-per-record → a second block color
 
-Never shows text, numbers, labels, per-user data, consecutive-day counts,
-build-up animation, or any congratulatory effect. Weeks whose cohort is
-below the anonymity threshold render as empty rings.
+The sculpture itself carries no text, numbers, or labels. Page chrome
+around it is limited to the YUZU logo (linking to
+[yuzu.style](https://yuzu.style)), a two-line lead, and a footer; no
+metrics — record counts, per-user data, consecutive-day counts — are
+displayed anywhere. No build-up animation, no congratulatory effect.
+Weeks whose cohort is below the anonymity threshold render as empty
+rings.
 
 ## Concept
 

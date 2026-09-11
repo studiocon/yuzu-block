@@ -7,6 +7,7 @@
   --ink-muted: #9A9ABA;
   --surface-border: #E8E0C8;
   --divider: #EDEAE0;
+  --font-body-fallback: "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
 }
 
 html,
@@ -15,4 +16,134 @@ body {
   height: 100%;
   overflow: hidden;
   background: var(--yuzu-white);
+}
+
+/* Fine Swiss grid behind the canvas. The canvas itself is transparent
+   (see components/BlockScene.tsx) so this shows through it. */
+.chrome-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(to right, var(--divider) 0 1px, transparent 1px 48px),
+    repeating-linear-gradient(to bottom, var(--divider) 0 1px, transparent 1px 48px);
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 55%, transparent 100%);
+  mask-image: radial-gradient(ellipse at center, #000 55%, transparent 100%);
+}
+
+.chrome-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  padding-top: 28px;
+  pointer-events: none;
+}
+
+.chrome-header a {
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.chrome-logo {
+  height: 32px;
+  width: auto;
+}
+
+.chrome-lead {
+  position: fixed;
+  left: 0;
+  bottom: 68px;
+  z-index: 2;
+  max-width: 34ch;
+  padding: 0 0 32px 32px;
+  pointer-events: none;
+}
+
+.chrome-lead-en {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: clamp(18px, 2.4vw, 28px);
+  color: var(--ink);
+}
+
+.chrome-lead-ja {
+  margin: 8px 0 0;
+  font-family: var(--font-body), var(--font-body-fallback);
+  font-weight: 700;
+  font-size: clamp(15px, 1.6vw, 20px);
+  color: var(--ink);
+}
+
+.chrome-lead-note {
+  margin: 12px 0 0;
+  font-family: var(--font-body), var(--font-body-fallback);
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+.chrome-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 32px;
+  border-top: 1px solid var(--divider);
+  background: rgba(250, 250, 245, 0.72);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.chrome-footer span,
+.chrome-footer a {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.chrome-footer a {
+  pointer-events: auto;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.chrome-footer a:hover {
+  color: var(--yuzu-zest);
+}
+
+@media (max-width: 768px) {
+  .chrome-logo {
+    height: 28px;
+  }
+
+  .chrome-lead {
+    bottom: 92px;
+    padding: 0 0 20px 20px;
+    text-align: left;
+  }
+
+  .chrome-footer {
+    padding: 14px 20px;
+  }
 }

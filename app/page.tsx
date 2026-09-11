@@ -11,7 +11,7 @@ export default function Home() {
   const scene = aggregateToBlocks(aggregate, { maxHeight: 20 });
 
   return (
-    <main style={{ position: "fixed", inset: 0 }}>
+    <main style={{ position: "fixed", inset: 0, zIndex: 1 }}>
       <BlockScene scene={scene} />
     </main>
   );

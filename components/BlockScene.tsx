@@ -3,10 +3,15 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { YUZU_WHITE, YUZU_YELLOW, YUZU_ZEST } from "@/lib/palette";
+import { YUZU_YELLOW, YUZU_ZEST } from "@/lib/palette";
 import type { Block, SceneSpec } from "@/lib/types";
 
 const BLOCK_SCALE = 0.96;
+
+// Nudges the framed sculpture upward so it clears the header/lead/footer
+// page chrome added around the canvas, without altering the camera's
+// actual position or target.
+const VIEW_OFFSET_PX = 35;
 
 export interface BlockSceneProps {
   scene: SceneSpec;
@@ -28,7 +33,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
 
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     } catch {
       return () => {
         container.removeChild(canvas);
@@ -36,7 +41,8 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     }
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(new THREE.Color(YUZU_WHITE), 1);
+    // Transparent clear so the page's CSS grid background shows through.
+    renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.NoToneMapping;
 
     const three = buildScene(scene);
@@ -62,6 +68,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       renderer.setSize(width, height);
       camera.aspect = width / height;
       updateCameraForViewport(width / height);
+      camera.setViewOffset(width, height, 0, -VIEW_OFFSET_PX, width, height);
       camera.updateProjectionMatrix();
     }
 
