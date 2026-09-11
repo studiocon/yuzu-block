@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { INK, YUZU_WHITE, YUZU_YELLOW, YUZU_ZEST } from "@/lib/palette";
+import { YUZU_WHITE, YUZU_YELLOW, YUZU_ZEST } from "@/lib/palette";
 import type { Block, SceneSpec } from "@/lib/types";
 
 const BLOCK_SCALE = 0.96;
@@ -21,6 +21,9 @@ export default function BlockScene({ scene }: BlockSceneProps) {
 
     const canvas = document.createElement("canvas");
     canvas.setAttribute("aria-hidden", "true");
+    canvas.style.display = "block";
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
     container.appendChild(canvas);
 
     let renderer: THREE.WebGLRenderer;
@@ -55,7 +58,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     function resize() {
       const width = container!.clientWidth;
       const height = container!.clientHeight;
-      renderer.setSize(width, height, false);
+      renderer.setSize(width, height);
       camera.aspect = width / height;
       updateCameraForViewport(width / height);
       camera.updateProjectionMatrix();
@@ -99,16 +102,16 @@ interface BuiltScene {
 function buildScene(scene: SceneSpec): BuiltScene {
   const threeScene = new THREE.Scene();
 
-  const hemiLight = new THREE.HemisphereLight(
-    new THREE.Color(YUZU_WHITE),
-    new THREE.Color(INK),
-    0.9,
-  );
-  threeScene.add(hemiLight);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+  threeScene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
-  dirLight.position.set(1, 1.6, 0.8);
-  threeScene.add(dirLight);
+  const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  keyLight.position.set(1, 2, 0.6);
+  threeScene.add(keyLight);
+
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.25);
+  fillLight.position.set(-1, 0.5, -0.8);
+  threeScene.add(fillLight);
 
   const geometry = new THREE.BoxGeometry(BLOCK_SCALE, BLOCK_SCALE, BLOCK_SCALE);
   const yellowMaterial = new THREE.MeshLambertMaterial({ color: new THREE.Color(YUZU_YELLOW) });
@@ -122,7 +125,7 @@ function buildScene(scene: SceneSpec): BuiltScene {
   if (yellowMesh) threeScene.add(yellowMesh);
   if (zestMesh) threeScene.add(zestMesh);
 
-  const lookAtHeight = scene.maxHeight * 0.3;
+  const lookAtHeight = scene.maxHeight / 2;
 
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
   const elevation = THREE.MathUtils.degToRad(35);
@@ -133,11 +136,11 @@ function buildScene(scene: SceneSpec): BuiltScene {
     const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * aspect);
     const effectiveFov = Math.min(vFovRad, hFovRad);
 
-    // Half-extent of the sculpture footprint (diagonal, to be safe for any
-    // rotation) plus its height, fit within the smaller of the two FOVs.
+    // Bounding-sphere fit around the sculpture footprint (diagonal, safe
+    // for any rotation) and its full height, with a 5% margin.
     const footprintRadius = halfWidth * Math.SQRT2;
-    const radius = Math.max(footprintRadius, scene.maxHeight);
-    const distance = radius / Math.tan(effectiveFov / 2) + radius;
+    const radius = Math.sqrt(footprintRadius ** 2 + (scene.maxHeight / 2) ** 2);
+    const distance = (radius / Math.sin(effectiveFov / 2)) * 1.05;
 
     const horizontalDistance = distance * Math.cos(elevation);
     const verticalDistance = distance * Math.sin(elevation);
@@ -159,28 +162,19 @@ function buildScene(scene: SceneSpec): BuiltScene {
   return { threeScene, camera, lookAtHeight, updateCameraForViewport, dispose };
 }
 
-interface DisposableInstancedMesh extends THREE.InstancedMesh {
-  dispose: () => void;
-}
-
 function buildInstancedMesh(
   geometry: THREE.BoxGeometry,
   material: THREE.MeshLambertMaterial,
   blocks: Block[],
-): DisposableInstancedMesh | null {
+): THREE.InstancedMesh | null {
   if (blocks.length === 0) return null;
 
-  const mesh = new THREE.InstancedMesh(geometry, material, blocks.length) as DisposableInstancedMesh;
+  const mesh = new THREE.InstancedMesh(geometry, material, blocks.length);
   const matrix = new THREE.Matrix4();
   blocks.forEach((block, i) => {
     matrix.makeTranslation(block.x, block.y + 0.5, block.z);
     mesh.setMatrixAt(i, matrix);
   });
   mesh.instanceMatrix.needsUpdate = true;
-  mesh.dispose = () => {
-    // Geometry and material are shared/disposed by the caller; this mesh
-    // itself holds no additional GPU resources beyond instanceMatrix,
-    // which is released when the mesh is garbage collected after removal.
-  };
   return mesh;
 }
