@@ -136,7 +136,7 @@ body {
 
 /* The footer's own uppercase transform would turn the literal MCP path
    into "/API/MCP" — keep the path's casing untouched. */
-.chrome-footer-path {
+.chrome-footer .chrome-footer-path {
   text-transform: none;
 }
 
