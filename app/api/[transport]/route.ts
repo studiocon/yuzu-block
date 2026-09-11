@@ -1,7 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
-import { generateAggregate } from "@/lib/mock-aggregate";
 import { MIN_RING_YEAR, validateRingYear } from "@/lib/ring-year";
+import { loadRingAggregate } from "@/lib/ring-source";
 
 // mcp-handler resolves endpoints from the dynamic [transport] segment
 // combined with basePath below: basePath "/api" + this file living at
@@ -17,8 +17,8 @@ const handler = createMcpHandler(
         description:
           "Returns anonymous, aggregate-only weekly buckets (record count, word count, " +
           "silence-day ratio) for the given year. Buckets below the anonymity threshold " +
-          "are null. No per-user data exists. Currently backed by a deterministic mock " +
-          "generator.",
+          "are null. No per-user data exists. The result is either upstream anonymous " +
+          "aggregates or a deterministic mock, indicated by the top-level `source` field.",
         inputSchema: {
           year: z.number().int().describe(`Year to fetch, ${MIN_RING_YEAR} or later.`),
         },
@@ -36,9 +36,9 @@ const handler = createMcpHandler(
           };
         }
 
-        const aggregate = generateAggregate({ year });
+        const { aggregate, source } = await loadRingAggregate(year);
         return {
-          content: [{ type: "text", text: JSON.stringify(aggregate) }],
+          content: [{ type: "text", text: JSON.stringify({ ...aggregate, source }) }],
         };
       },
     );

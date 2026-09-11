@@ -163,9 +163,25 @@ falls below `minCohort` are returned with every numeric field set to `null`
 and `sufficient: false`. No per-user field exists anywhere in this shape, by
 construction.
 
-The current data source is a deterministic mock (`lib/mock-aggregate.ts`),
-seeded by year and date. A real data source must return the same
-`RingAggregate` shape.
+The data source is selected by the `RING_DATA_URL` environment variable
+(`lib/ring-source.ts`):
+
+- Unset: a deterministic mock (`lib/mock-aggregate.ts`), seeded by year and
+  date.
+- Set: `GET {RING_DATA_URL}?year=YYYY`, expected to return JSON matching
+  `RingAggregate` exactly (52 or 53 `WeekBucket`s, `unit: "week"`, nulls
+  agreeing with `sufficient`). The response is validated against that shape;
+  any failure — network error, non-2xx, timeout, or invalid shape — falls
+  back to the mock and logs one line server-side. The upstream is expected
+  to set long CDN cache headers; no auth is sent or required.
+
+The MCP tool's JSON output carries a top-level `source` field
+(`"upstream"` or `"mock"`) alongside the aggregate, so a caller can see
+which one produced a given response. The page never renders this field.
+
+`wordCount`'s unit is defined by whichever source produced it. For the
+reference upstream (the voice journal above), it is transcribed
+characters, not words.
 
 ## Rendering
 
@@ -188,7 +204,9 @@ Grant / Showcase as a standalone, free, open-source demo.
 
 ## Deploy
 
-Vercel, zero configuration (`next build`).
+Vercel, zero configuration (`next build`). To use a real upstream instead
+of the mock, set `RING_DATA_URL` in the Vercel project's environment
+variables (see `.env.local.example`).
 
 ## License
 
