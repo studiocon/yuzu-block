@@ -123,4 +123,30 @@ describe("loadAggregate", () => {
 
     expect(result.source).toBe("mock");
   });
+
+  it("falls back to mock when a valid upstream payload has no sufficient week", async () => {
+    const upstream: RingAggregate = generateAggregate({ year: YEAR, now: NOW });
+    const allInsufficient: RingAggregate = {
+      ...upstream,
+      buckets: upstream.buckets.map((b) => ({
+        ...b,
+        sufficient: false,
+        recordCount: null,
+        wordCount: null,
+        silenceDayRatio: null,
+      })),
+    };
+    const fetchImpl = vi.fn(async () => jsonResponse(allInsufficient)) as unknown as typeof fetch;
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await loadAggregate(YEAR, {
+      now: NOW,
+      url: "https://example.test/weekly",
+      fetchImpl,
+    });
+    errorSpy.mockRestore();
+
+    expect(result.source).toBe("mock");
+    expect(result.aggregate).toEqual(generateAggregate({ year: YEAR, now: NOW }));
+  });
 });

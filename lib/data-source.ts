@@ -91,6 +91,11 @@ export async function loadAggregate(
       return { aggregate: generateAggregate({ year, now }), source: "mock" };
     }
 
+    if (payload.buckets.every((b) => !b.sufficient)) {
+      console.error("data-source: upstream has no sufficient week; using mock");
+      return { aggregate: generateAggregate({ year, now }), source: "mock" };
+    }
+
     return { aggregate: payload, source: "upstream" };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

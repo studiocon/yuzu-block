@@ -18,7 +18,9 @@ The sculpture itself carries no text, numbers, or labels. Page chrome
 around it is limited to the YUZU logo (linking to
 [yuzu.style](https://yuzu.style)), a two-line lead, and a footer; no
 metrics — record counts, per-user data, consecutive-day counts — are
-displayed anywhere. No build-up animation, no congratulatory effect.
+displayed anywhere. No counters, no congratulatory effect, no light or
+sound cue. The sculpture never exceeds the server snapshot it started
+from — see "Rendering" for what it does show while a visitor watches.
 Weeks whose cohort is below the anonymity threshold render as empty
 rings.
 
@@ -180,6 +182,10 @@ The data source is selected by the `DATA_SOURCE_URL` environment variable
   back to the mock and logs one line server-side. The upstream is expected
   to set long CDN cache headers; no auth is sent or required.
 
+When a validated upstream payload has no week above the anonymity
+threshold at all, the site and MCP tool fall back to the mock as well and
+report `source: "mock"`.
+
 The MCP tool's JSON output carries a top-level `source` field
 (`"upstream"` or `"mock"`) alongside the aggregate, so a caller can see
 which one produced a given response. The page never renders this field.
@@ -191,11 +197,18 @@ characters, not words.
 ## Rendering
 
 The scene is a snapshot: `SceneSpec` is generated server-side on every
-request and handed to the client once. Nothing animates except a slow,
-continuous camera orbit. Blocks are unlit, per-face tints of the two block
-tokens defined in `lib/palette.ts` — side faces are fixed, darker
-multiples of the same top-face color, not a separate token or a lighting
-effect. Colors actually rendered:
+request and handed to the client once. A slow, continuous camera orbit
+runs throughout. On top of the snapshot, the client holds back about 10%
+of its blocks at first paint and reveals them one at a time on a bounded
+schedule, and independently re-colors whole cell columns between the two
+tokens while holding the overall color balance close to the snapshot's —
+the sculpture reads as continuously carved, but it converges to the
+snapshot and never adds anything beyond it. `prefers-reduced-motion`
+renders the finished snapshot with no camera motion and no carving.
+Blocks are unlit, per-face tints of the two block tokens defined in
+`lib/palette.ts` — side faces are fixed, darker multiples of the same
+top-face color, not a separate token or a lighting effect. Colors
+actually rendered:
 
 - `YUZU_YELLOW` `#F5D84A`
 - `YUZU_ZEST` `#E8A020`
