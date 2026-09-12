@@ -1,17 +1,17 @@
 import { generateAggregate } from "./mock-aggregate";
 import type { RingAggregate, WeekBucket } from "./types";
 
-export type RingSource = "upstream" | "mock";
+export type DataSource = "upstream" | "mock";
 
-export interface LoadRingAggregateOptions {
+export interface LoadAggregateOptions {
   now?: Date;
   fetchImpl?: typeof fetch;
   url?: string | null;
 }
 
-export interface LoadRingAggregateResult {
+export interface LoadAggregateResult {
   aggregate: RingAggregate;
-  source: RingSource;
+  source: DataSource;
 }
 
 function isWeekBucket(x: unknown): x is WeekBucket {
@@ -55,16 +55,16 @@ export function isRingAggregate(x: unknown, expectedYear?: number): x is RingAgg
 
 /**
  * Loads a `RingAggregate` for `year`: from the upstream public API when
- * `RING_DATA_URL` (or `opts.url`) is set, otherwise from the deterministic
+ * `DATA_SOURCE_URL` (or `opts.url`) is set, otherwise from the deterministic
  * mock. Any upstream failure — network, non-2xx, invalid shape — falls back
  * to mock. Never throws.
  */
-export async function loadRingAggregate(
+export async function loadAggregate(
   year: number,
-  opts: LoadRingAggregateOptions = {},
-): Promise<LoadRingAggregateResult> {
+  opts: LoadAggregateOptions = {},
+): Promise<LoadAggregateResult> {
   const now = opts.now ?? new Date();
-  const url = opts.url !== undefined ? opts.url : (process.env.RING_DATA_URL ?? null);
+  const url = opts.url !== undefined ? opts.url : (process.env.DATA_SOURCE_URL ?? null);
 
   if (!url) {
     return { aggregate: generateAggregate({ year, now }), source: "mock" };
@@ -80,21 +80,21 @@ export async function loadRingAggregate(
     } as RequestInit);
 
     if (!response.ok) {
-      console.error(`ring-source: upstream returned status ${response.status}`);
+      console.error(`data-source: upstream returned status ${response.status}`);
       return { aggregate: generateAggregate({ year, now }), source: "mock" };
     }
 
     const payload: unknown = await response.json();
 
     if (!isRingAggregate(payload, year)) {
-      console.error("ring-source: upstream payload failed shape validation");
+      console.error("data-source: upstream payload failed shape validation");
       return { aggregate: generateAggregate({ year, now }), source: "mock" };
     }
 
     return { aggregate: payload, source: "upstream" };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    console.error(`ring-source: upstream fetch failed: ${reason}`);
+    console.error(`data-source: upstream fetch failed: ${reason}`);
     return { aggregate: generateAggregate({ year, now }), source: "mock" };
   }
 }

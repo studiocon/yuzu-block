@@ -167,12 +167,13 @@ falls below `minCohort` are returned with every numeric field set to `null`
 and `sufficient: false`. No per-user field exists anywhere in this shape, by
 construction.
 
-The data source is selected by the `RING_DATA_URL` environment variable
-(`lib/ring-source.ts`):
+The data source is selected by the `DATA_SOURCE_URL` environment variable
+(`lib/data-source.ts`):
 
 - Unset: a deterministic mock (`lib/mock-aggregate.ts`), seeded by year and
   date.
-- Set: `GET {RING_DATA_URL}?year=YYYY`, expected to return JSON matching
+- Set (e.g. `DATA_SOURCE_URL=https://app.yuzu.style/api/public/weekly`):
+  `GET {DATA_SOURCE_URL}?year=YYYY`, expected to return JSON matching
   `RingAggregate` exactly (52 or 53 `WeekBucket`s, `unit: "week"`, nulls
   agreeing with `sufficient`). The response is validated against that shape;
   any failure — network error, non-2xx, timeout, or invalid shape — falls
@@ -209,7 +210,7 @@ Grant / Showcase as a standalone, free, open-source demo.
 ## Deploy
 
 Vercel, zero configuration (`next build`). To use a real upstream instead
-of the mock, set `RING_DATA_URL` in the Vercel project's environment
+of the mock, set `DATA_SOURCE_URL` in the Vercel project's environment
 variables (see `.env.local.example`).
 
 ## License

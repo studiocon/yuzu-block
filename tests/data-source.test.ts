@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateAggregate } from "@/lib/mock-aggregate";
-import { isRingAggregate, loadRingAggregate } from "@/lib/ring-source";
+import { isRingAggregate, loadAggregate } from "@/lib/data-source";
 import type { RingAggregate } from "@/lib/types";
 
 const NOW = new Date("2026-09-12T00:00:00.000Z");
@@ -60,10 +60,10 @@ describe("isRingAggregate", () => {
   });
 });
 
-describe("loadRingAggregate", () => {
+describe("loadAggregate", () => {
   it("returns a deterministic mock when no url is configured", async () => {
-    const a = await loadRingAggregate(YEAR, { now: NOW, url: null });
-    const b = await loadRingAggregate(YEAR, { now: NOW, url: null });
+    const a = await loadAggregate(YEAR, { now: NOW, url: null });
+    const b = await loadAggregate(YEAR, { now: NOW, url: null });
     expect(a.source).toBe("mock");
     expect(a.aggregate).toEqual(b.aggregate);
   });
@@ -75,9 +75,9 @@ describe("loadRingAggregate", () => {
       return jsonResponse(upstream);
     }) as unknown as typeof fetch;
 
-    const result = await loadRingAggregate(YEAR, {
+    const result = await loadAggregate(YEAR, {
       now: NOW,
-      url: "https://example.test/ring-data",
+      url: "https://example.test/weekly",
       fetchImpl,
     });
 
@@ -89,9 +89,9 @@ describe("loadRingAggregate", () => {
   it("falls back to mock on a non-2xx response", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: "nope" }, 500)) as unknown as typeof fetch;
 
-    const result = await loadRingAggregate(YEAR, {
+    const result = await loadAggregate(YEAR, {
       now: NOW,
-      url: "https://example.test/ring-data",
+      url: "https://example.test/weekly",
       fetchImpl,
     });
 
@@ -99,11 +99,11 @@ describe("loadRingAggregate", () => {
   });
 
   it("falls back to mock on an invalid shape", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ not: "a ring aggregate" })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(async () => jsonResponse({ not: "an aggregate" })) as unknown as typeof fetch;
 
-    const result = await loadRingAggregate(YEAR, {
+    const result = await loadAggregate(YEAR, {
       now: NOW,
-      url: "https://example.test/ring-data",
+      url: "https://example.test/weekly",
       fetchImpl,
     });
 
@@ -115,9 +115,9 @@ describe("loadRingAggregate", () => {
       throw new Error("timed out");
     }) as unknown as typeof fetch;
 
-    const result = await loadRingAggregate(YEAR, {
+    const result = await loadAggregate(YEAR, {
       now: NOW,
-      url: "https://example.test/ring-data",
+      url: "https://example.test/weekly",
       fetchImpl,
     });
 

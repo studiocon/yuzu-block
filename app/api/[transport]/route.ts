@@ -1,7 +1,7 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
-import { MIN_RING_YEAR, validateRingYear } from "@/lib/ring-year";
-import { loadRingAggregate } from "@/lib/ring-source";
+import { MIN_DATA_YEAR, validateDataYear } from "@/lib/data-year";
+import { loadAggregate } from "@/lib/data-source";
 
 // mcp-handler resolves endpoints from the dynamic [transport] segment
 // combined with basePath below: basePath "/api" + this file living at
@@ -20,7 +20,7 @@ const handler = createMcpHandler(
           "are null. No per-user data exists. The result is either upstream anonymous " +
           "aggregates or a deterministic mock, indicated by the top-level `source` field.",
         inputSchema: {
-          year: z.number().int().describe(`Year to fetch, ${MIN_RING_YEAR} or later.`),
+          year: z.number().int().describe(`Year to fetch, ${MIN_DATA_YEAR} or later.`),
         },
         annotations: {
           readOnlyHint: true,
@@ -28,7 +28,7 @@ const handler = createMcpHandler(
         },
       },
       async ({ year }) => {
-        const validation = validateRingYear(year);
+        const validation = validateDataYear(year);
         if (!validation.ok) {
           return {
             isError: true,
@@ -36,7 +36,7 @@ const handler = createMcpHandler(
           };
         }
 
-        const { aggregate, source } = await loadRingAggregate(year);
+        const { aggregate, source } = await loadAggregate(year);
         return {
           content: [{ type: "text", text: JSON.stringify({ ...aggregate, source }) }],
         };
