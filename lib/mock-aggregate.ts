@@ -45,10 +45,6 @@ function weekStarts(year: number): Date[] {
   return starts;
 }
 
-export function currentYear(now: Date = new Date()): number {
-  return now.getUTCFullYear();
-}
-
 /**
  * Smooth yearly envelope: low early in the year, rising through spring,
  * plateauing for the back half. Returns an approximate mean recordCount

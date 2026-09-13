@@ -1,5 +1,5 @@
 import { aggregateToBlocks } from "@/lib/aggregate-to-blocks";
-import { currentYear } from "@/lib/mock-aggregate";
+import { currentYear } from "@/lib/data-year";
 import { loadAggregate } from "@/lib/data-source";
 import BlockScene from "@/components/BlockScene";
 

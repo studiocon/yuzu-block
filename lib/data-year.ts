@@ -1,6 +1,13 @@
-import { currentYear } from "./mock-aggregate";
+// Which years this project will answer for. Kept clear of the mock
+// generator so that real-data paths (the page, the MCP tool) do not
+// depend on the mock module just to ask what year it is.
 
 export const MIN_DATA_YEAR = 2026;
+
+/** The latest year data can exist for. Buckets are UTC-based ISO weeks. */
+export function currentYear(now: Date = new Date()): number {
+  return now.getUTCFullYear();
+}
 
 export type DataYearValidation = { ok: true } | { ok: false; message: string };
 
