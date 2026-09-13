@@ -7,7 +7,7 @@
   --ink-muted: #9A9ABA;
   --surface-border: #E8E0C8;
   --divider: #EDEAE0;
-  --font-body-fallback: "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  --font-body-fallback: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 html,

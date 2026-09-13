@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { LINE_Seed_JP, Unbounded } from "next/font/google";
+import { Inter, Unbounded } from "next/font/google";
 import "./globals.css";
 import { YUZU_WHITE } from "@/lib/palette";
 import { FOOTER_COPY, LEAD_COPY } from "@/lib/copy";
@@ -10,15 +10,11 @@ const unbounded = Unbounded({
   subsets: ["latin"],
 });
 
-// LINE Seed JP's Japanese glyphs are split across unicode-range subsets
-// that can't be declared via `subsets` (latin-only there), so preload
-// must stay off — enabling it without a subset declaration fails the
-// build.
-const lineSeedJP = LINE_Seed_JP({
+const inter = Inter({
   variable: "--font-body",
   weight: ["400", "700"],
+  subsets: ["latin"],
   display: "swap",
-  preload: false,
 });
 
 export const metadata = {
@@ -36,7 +32,7 @@ export const viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${unbounded.variable} ${lineSeedJP.variable}`}>
+    <html lang="en" className={`${unbounded.variable} ${inter.variable}`}>
       <body>
         <div className="chrome-grid" aria-hidden="true" />
         {children}
