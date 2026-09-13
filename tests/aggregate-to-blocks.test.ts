@@ -83,11 +83,65 @@ describe("aggregateToBlocks", () => {
     expect(scene.blocks.some((b) => b.color === "zest")).toBe(true);
   });
 
-  it("sets extent to the number of buckets and maxHeight to the option used", () => {
+  it("reports bounds of the blocks actually emitted, not of the ring grid", () => {
     const agg = fullYearAggregate("blocks-extent");
     const scene = aggregateToBlocks(agg, { maxHeight: 20 });
-    expect(scene.extent).toBe(agg.buckets.length);
-    expect(scene.maxHeight).toBe(20);
+
+    const expectedHalfExtent = scene.blocks.reduce(
+      (max, b) => Math.max(max, Math.abs(b.x), Math.abs(b.z)),
+      0,
+    );
+    const expectedHeight = scene.blocks.reduce((max, b) => Math.max(max, b.y + 1), 0);
+
+    expect(scene.halfExtent).toBe(expectedHalfExtent);
+    expect(scene.height).toBe(expectedHeight);
+    expect(scene.height).toBeLessThanOrEqual(20);
+    // Insufficient weeks emit nothing, so the occupied footprint stays
+    // inside the nominal ring grid rather than matching it.
+    expect(scene.halfExtent).toBeLessThan(agg.buckets.length);
+  });
+
+  it("shrinks the reported footprint to the outermost sufficient ring", () => {
+    // Rings 0 and 1 carry blocks; ring 2 does not. The footprint must
+    // report ring 1, not the three-bucket grid the rings sit in.
+    const agg: RingAggregate = {
+      year: 2026,
+      unit: "week",
+      minCohort: 1,
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      buckets: [
+        {
+          index: 0,
+          start: "2025-12-29",
+          sufficient: true,
+          recordCount: 100,
+          wordCount: 9000,
+          silenceDayRatio: 0,
+        },
+        {
+          index: 1,
+          start: "2026-01-05",
+          sufficient: true,
+          recordCount: 50,
+          wordCount: 4000,
+          silenceDayRatio: 0,
+        },
+        {
+          index: 2,
+          start: "2026-01-12",
+          sufficient: false,
+          recordCount: null,
+          wordCount: null,
+          silenceDayRatio: null,
+        },
+      ],
+    };
+
+    const scene = aggregateToBlocks(agg, { maxHeight: 8 });
+
+    expect(scene.halfExtent).toBe(1);
+    // Ring 0 holds the tallest column: it has the largest recordCount.
+    expect(scene.height).toBe(8);
   });
 
   it("returns zero blocks (and does not throw) when no bucket is sufficient", () => {
@@ -117,7 +171,8 @@ describe("aggregateToBlocks", () => {
     };
     const scene = aggregateToBlocks(agg);
     expect(scene.blocks).toEqual([]);
-    expect(scene.extent).toBe(2);
+    expect(scene.halfExtent).toBe(0);
+    expect(scene.height).toBe(0);
   });
 
   it("guarantees at least one filled cell even when silenceDayRatio is near 1", () => {

@@ -16,10 +16,10 @@ Shows weekly aggregate rings:
 
 The sculpture itself carries no text, numbers, or labels. Page chrome
 around it is limited to the YUZU logo (linking to
-[yuzu.style](https://yuzu.style)), a two-line lead, and a footer; no
-metrics — record counts, per-user data, consecutive-day counts — are
-displayed anywhere. No counters, no congratulatory effect, no light or
-sound cue. The sculpture never exceeds the server snapshot it started
+[yuzu.style](https://yuzu.style)), a lead, and a footer; every string on
+the page is defined in `lib/copy.ts`. No metrics — record counts,
+per-user data, consecutive-day counts — are displayed anywhere. No
+counters, no congratulatory effect, no light or sound cue. The sculpture never exceeds the server snapshot it started
 from — see "Rendering" for what it does show while a visitor watches.
 Weeks whose cohort is below the anonymity threshold render as empty
 rings.
@@ -204,7 +204,17 @@ schedule, and independently re-colors whole cell columns between the two
 tokens while holding the overall color balance close to the snapshot's —
 the sculpture reads as continuously carved, but it converges to the
 snapshot and never adds anything beyond it. `prefers-reduced-motion`
-renders the finished snapshot with no camera motion and no carving.
+renders the finished snapshot with no camera motion and no carving, and
+draws on demand rather than running a render loop over a still image.
+
+The camera frames the blocks that actually exist, not the nominal ring
+grid: weeks below the anonymity threshold and weeks still ahead in the
+year emit nothing, so early in a year most of the grid is empty. The fit
+is a bounding sphere around the occupied footprint, sized against the
+full render width and against the chrome-free vertical band, so the
+sculpture stays clear of the header and footer at every orbit angle
+without the empty grid pushing the camera back.
+
 Blocks are unlit, per-face tints of the two block tokens defined in
 `lib/palette.ts` — side faces are fixed, darker multiples of the same
 top-face color, not a separate token or a lighting effect. Colors

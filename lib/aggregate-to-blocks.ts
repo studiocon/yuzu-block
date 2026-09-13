@@ -120,7 +120,13 @@ export function aggregateToBlocks(
     }
   }
 
-  const extent = agg.buckets.length;
+  let halfExtent = 0;
+  let height = 0;
+  for (const b of blocks) {
+    if (Math.abs(b.x) > halfExtent) halfExtent = Math.abs(b.x);
+    if (Math.abs(b.z) > halfExtent) halfExtent = Math.abs(b.z);
+    if (b.y + 1 > height) height = b.y + 1;
+  }
 
-  return { blocks, extent, maxHeight };
+  return { blocks, halfExtent, height };
 }

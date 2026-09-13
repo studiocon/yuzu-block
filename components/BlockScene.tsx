@@ -16,23 +16,41 @@ import type { Block, BlockColor, SceneSpec } from "@/lib/types";
 
 const BLOCK_SCALE = 0.96;
 
+// Elements per instance in InstancedMesh's backing buffers.
+const MATRIX_STRIDE = 16;
+const COLOR_STRIDE = 3;
+
 const COLOR_HEX: Record<BlockColor, string> = {
   yellow: YUZU_YELLOW,
   zest: YUZU_ZEST,
 };
 
 // Safe-area insets (px) reserved for page chrome: the header sits above
-// TOP_INSET, and the lead+footer sit below (viewport height - BOTTOM_INSET).
-// The sculpture is fit and framed to stay clear of both bands.
-const TOP_INSET = 96;
-const BOTTOM_INSET_DESKTOP = 208;
-const BOTTOM_INSET_MOBILE = 232;
+// TOP_INSET, and the footer (plus, on mobile, the lead) sits below
+// (viewport height - BOTTOM_INSET). The sculpture is fit and framed to
+// stay clear of both bands.
+//
+// On desktop the lead sits bottom-left while the sculpture is centred, so
+// the bottom inset only has to clear the footer bar; reserving the lead's
+// full height there would shrink the sculpture across the whole width to
+// avoid a corner it barely reaches.
+const TOP_INSET = 64;
+const BOTTOM_INSET_DESKTOP = 104;
+const BOTTOM_INSET_MOBILE = 208;
 const MOBILE_BREAKPOINT = 768;
 
-// Safety margin over the exact bounding-sphere fit to the safe area, so
-// the sculpture sits comfortably inside it rather than exactly touching
-// the boundary (verified numerically across several viewport sizes).
-const FIT_MARGIN = 1.05;
+const FOV_DEG = 35;
+
+const MIN_POLAR_ANGLE = Math.PI * 0.15;
+const MAX_POLAR_ANGLE = Math.PI * 0.49;
+
+// Slack over the exact bounding-sphere fit, so the sculpture sits just
+// inside the safe area rather than exactly touching it.
+const FIT_MARGIN = 1.02;
+
+// Blocks are boxes of BLOCK_SCALE centred on their cell, so the solid
+// reaches half a block past the outermost cell centre.
+const BLOCK_OVERHANG = BLOCK_SCALE / 2;
 
 function bottomInsetFor(width: number): number {
   return width < MOBILE_BREAKPOINT ? BOTTOM_INSET_MOBILE : BOTTOM_INSET_DESKTOP;
@@ -83,11 +101,13 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableZoom = false;
     controls.enablePan = false;
-    controls.enableDamping = true;
+    // Damping needs a per-frame update, which only the animation loop
+    // provides — under reduced motion the scene renders on demand instead.
+    controls.enableDamping = !prefersReducedMotion;
     controls.autoRotate = !prefersReducedMotion;
     controls.autoRotateSpeed = 0.4;
-    controls.minPolarAngle = Math.PI * 0.15;
-    controls.maxPolarAngle = Math.PI * 0.49;
+    controls.minPolarAngle = MIN_POLAR_ANGLE;
+    controls.maxPolarAngle = MAX_POLAR_ANGLE;
     controls.target.set(0, three.lookAtHeight, 0);
     controls.update();
 
@@ -108,18 +128,33 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       const offsetY = (bottomInset - TOP_INSET) / 2;
       camera.setViewOffset(width, height, 0, offsetY, width, height);
       camera.updateProjectionMatrix();
+
+      if (prefersReducedMotion) renderer.render(threeScene, camera);
     }
 
     resize();
     window.addEventListener("resize", resize);
 
+    // With motion, every frame differs (orbit, reveals, color drift), so a
+    // continuous loop is what the scene needs. Without it nothing changes
+    // unless the visitor drags, so the loop would burn a frame's worth of
+    // work forever on an identical image — render on demand instead.
     let rafId = 0;
-    function animate() {
-      controls.update();
+    function renderOnDemand() {
       renderer.render(threeScene, camera);
+    }
+
+    if (prefersReducedMotion) {
+      controls.addEventListener("change", renderOnDemand);
+      renderer.render(threeScene, camera);
+    } else {
+      const animate = () => {
+        controls.update();
+        renderer.render(threeScene, camera);
+        rafId = requestAnimationFrame(animate);
+      };
       rafId = requestAnimationFrame(animate);
     }
-    rafId = requestAnimationFrame(animate);
 
     // Bounded carving animation: reveals converge to the server snapshot
     // and never exceed it. Both loops are independent, self-rescheduling
@@ -149,6 +184,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     return () => {
       cancelAnimationFrame(rafId);
       window.removeEventListener("resize", resize);
+      controls.removeEventListener("change", renderOnDemand);
       if (revealTimer !== undefined) clearTimeout(revealTimer);
       if (driftTimer !== undefined) clearTimeout(driftTimer);
       controls.dispose();
@@ -208,19 +244,23 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
     threeScene.add(mesh);
   }
 
-  const lookAtHeight = scene.maxHeight / 2;
+  // Solid bounds of the sculpture, not of the nominal ring grid. Weeks
+  // below the anonymity threshold and weeks still in the future emit no
+  // blocks, so for most of the year the grid is mostly empty air — framing
+  // it instead of the blocks is what used to leave the sculpture small.
+  const solidHalfExtent = Math.max(scene.halfExtent + BLOCK_OVERHANG, 1);
+  const solidHeight = Math.max(scene.height, 1);
+  const lookAtHeight = solidHeight / 2;
 
-  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
+  const camera = new THREE.PerspectiveCamera(FOV_DEG, 1, 0.1, 1000);
   const elevation = THREE.MathUtils.degToRad(42);
-  const halfWidth = Math.max(1, scene.extent);
 
-  // Bounding-sphere radius around the sculpture footprint (diagonal, safe
-  // for any auto-rotation angle) and its full height.
-  const footprintRadius = halfWidth * Math.SQRT2;
-  const radius = Math.sqrt(footprintRadius ** 2 + (scene.maxHeight / 2) ** 2);
+  // Bounding-sphere radius around the sculpture (footprint diagonal, safe
+  // for any orbit angle) and its half height.
+  const footprintRadius = solidHalfExtent * Math.SQRT2;
+  const radius = Math.hypot(footprintRadius, solidHeight / 2);
 
-  const vFovRad = THREE.MathUtils.degToRad(camera.fov);
-  const tanVHalf = Math.tan(vFovRad / 2);
+  const tanVHalf = Math.tan(THREE.MathUtils.degToRad(FOV_DEG) / 2);
 
   function updateCameraForViewport(width: number, height: number) {
     const aspect = width / height;
@@ -228,8 +268,8 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
 
     // Two independent pixel-space constraints on the sphere's apparent
     // half-extent: the full width (nothing eats into it), and the safe
-    // vertical band between header and lead/footer (bandHeight, not the
-    // full viewport height). Each is expressed as a tangent of a half-angle
+    // vertical band between header and footer (bandHeight, not the full
+    // viewport height). Each is expressed as a tangent of a half-angle
     // through the camera's fixed vertical FOV — since the physical FOV
     // always maps across the *full* render height, a smaller pixel budget
     // (bandHeight) corresponds to a proportionally smaller tangent budget,
@@ -241,10 +281,11 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
 
     const distance = (radius / Math.sin(thetaAllowed)) * FIT_MARGIN;
 
-    const horizontalDistance = distance * Math.cos(elevation);
-    const verticalDistance = distance * Math.sin(elevation);
-
-    camera.position.set(0, lookAtHeight + verticalDistance, horizontalDistance);
+    camera.position.set(
+      0,
+      lookAtHeight + distance * Math.sin(elevation),
+      distance * Math.cos(elevation),
+    );
     camera.lookAt(0, lookAtHeight, 0);
   }
 
@@ -265,6 +306,10 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
     return hiddenPool.length > 0;
   }
 
+  // Both carving loops touch a handful of instances out of tens of
+  // thousands, so they flag just the elements they wrote. Without a range
+  // three re-uploads the whole buffer — for the reveal loop that is the
+  // entire instance matrix (16 floats per block) on every single block.
   function revealOne(): void {
     if (!mesh || hiddenPool.length === 0) return;
     const pick = Math.floor(revealRng() * hiddenPool.length);
@@ -273,6 +318,7 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
     position.set(b.x, b.y + 0.5, b.z);
     matrix.compose(position, quaternion, visibleScale);
     mesh.setMatrixAt(index, matrix);
+    mesh.instanceMatrix.addUpdateRange(index * MATRIX_STRIDE, MATRIX_STRIDE);
     mesh.instanceMatrix.needsUpdate = true;
   }
 
@@ -280,11 +326,22 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
     if (!mesh) return;
     const flip = pickColorFlip(columns, currentColors, targetZestRatio, driftRng);
     if (!flip) return;
+
+    let min = Infinity;
+    let max = -Infinity;
     for (const index of flip.indices) {
       currentColors[index] = flip.toColor;
       mesh.setColorAt(index, tmpColor.set(COLOR_HEX[flip.toColor]));
+      if (index < min) min = index;
+      if (index > max) max = index;
     }
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
+    if (mesh.instanceColor) {
+      // A column's blocks are emitted consecutively, so one span covers
+      // them; a wider span would still be correct, only less efficient.
+      mesh.instanceColor.addUpdateRange(min * COLOR_STRIDE, (max - min + 1) * COLOR_STRIDE);
+      mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   function dispose() {

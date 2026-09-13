@@ -30,8 +30,15 @@ export interface Block {
   color: BlockColor;
 }
 
+// Bounds of the blocks actually emitted — not of the nominal ring grid.
+// Weeks below the anonymity threshold (and every week still in the future)
+// contribute no blocks, so the occupied footprint is usually far smaller
+// than the bucket count. The camera fit reads these, so it frames the
+// sculpture rather than the empty grid around it.
 export interface SceneSpec {
   blocks: Block[];
-  extent: number;
-  maxHeight: number;
+  /** Largest |x| or |z| over all blocks; 0 when there are none. */
+  halfExtent: number;
+  /** Top of the tallest column, in block units; 0 when there are none. */
+  height: number;
 }
