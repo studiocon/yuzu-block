@@ -64,7 +64,7 @@ body {
   pointer-events: none;
 }
 
-.chrome-lead-en {
+.chrome-lead-headline {
   margin: 0;
   font-family: var(--font-display), sans-serif;
   font-weight: 700;
@@ -74,14 +74,13 @@ body {
   color: var(--ink);
 }
 
-.chrome-lead-ja {
+.chrome-lead-body {
   margin: 8px 0 0;
   font-family: var(--font-body), var(--font-body-fallback);
   font-weight: 700;
   font-size: clamp(15px, 1.6vw, 20px);
+  line-height: 1.4;
   color: var(--ink);
-  word-break: keep-all;
-  overflow-wrap: anywhere;
 }
 
 .chrome-lead-note {

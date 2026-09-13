@@ -4,9 +4,9 @@
 // place. Declarative, documentary. No encouragement, no metrics.
 
 export const LEAD_COPY = {
-  en: "CARVED BY TIME",
-  ja: ["頑張ったから増えるのではない。", "時間が経てば、刻まれる。"],
-  note: "全ユーザーの匿名集計。個人の声は含まれない。",
+  headline: "CARVED BY TIME",
+  body: ["Effort didn't build this.", "Time did."],
+  note: "Anonymous aggregate across all users. No individual voice is represented.",
 };
 
 export const FOOTER_COPY = {
