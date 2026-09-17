@@ -12,9 +12,19 @@ import {
   pickColorFlip,
   selectInitiallyHidden,
 } from "@/lib/carve-schedule";
+import { buildNeighbourMasks } from "@/lib/neighbour-mask";
+import { columnsOf, orthoFrustum, projectedExtents } from "@/lib/ortho-fit";
 import type { Block, BlockColor, SceneSpec } from "@/lib/types";
+import {
+  createPrintGeometry,
+  createPrintMaterial,
+  updatePrintMaterialScale,
+} from "./printMaterial";
 
-const BLOCK_SCALE = 0.96;
+// Cells are unit cubes, so adjacent blocks meet exactly and the solid
+// reads as one mass. The per-cell articulation is carried by the shader's
+// outlines instead of by air gaps between the boxes.
+const BLOCK_SCALE = 1;
 
 // Elements per instance in InstancedMesh's backing buffers.
 const MATRIX_STRIDE = 16;
@@ -39,13 +49,25 @@ const BOTTOM_INSET_DESKTOP = 104;
 const BOTTOM_INSET_MOBILE = 208;
 const MOBILE_BREAKPOINT = 768;
 
-const FOV_DEG = 35;
+// Orbit range, as elevation above the horizon. The orthographic fit is
+// tight rather than bounding-sphere loose, so it has to be computed over
+// every angle the visitor can reach; a near-ground read was only ever
+// survivable because the old fit was loose, and it is a poor axonometric
+// besides. Elevation and OrbitControls' polar angle are complements.
+const MIN_ELEVATION = Math.PI / 6; // 30 degrees
+const MAX_ELEVATION = Math.PI / 3; // 60 degrees
+const DEFAULT_ELEVATION = THREE.MathUtils.degToRad(42);
 
-const MIN_POLAR_ANGLE = Math.PI * 0.15;
-const MAX_POLAR_ANGLE = Math.PI * 0.49;
+const MIN_POLAR_ANGLE = Math.PI / 2 - MAX_ELEVATION;
+const MAX_POLAR_ANGLE = Math.PI / 2 - MIN_ELEVATION;
 
-// Slack over the exact bounding-sphere fit, so the sculpture sits just
-// inside the safe area rather than exactly touching it.
+// Yaw steps sampled over a full revolution, and elevation steps across
+// the orbit range, when measuring the worst-case projected silhouette.
+const YAW_SAMPLES = 72;
+const ELEVATION_SAMPLES = 5;
+
+// Slack over the exact fit, so the sculpture sits just inside the safe
+// area rather than exactly touching it.
 const FIT_MARGIN = 1.02;
 
 // Blocks are boxes of BLOCK_SCALE centred on their cell, so the solid
@@ -87,7 +109,8 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       };
     }
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const pixelRatio = () => Math.min(window.devicePixelRatio, 2);
+    renderer.setPixelRatio(pixelRatio());
     // Transparent clear so the page's CSS grid background shows through.
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.NoToneMapping;
@@ -95,7 +118,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const prefersReducedMotion = reduceMotionQuery.matches;
 
-    const three = buildScene(scene, prefersReducedMotion);
+    const three = buildScene(scene, prefersReducedMotion, renderer.getPixelRatio());
     const { threeScene, camera, updateCameraForViewport } = three;
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -114,16 +137,19 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     function resize() {
       const width = container!.clientWidth;
       const height = container!.clientHeight;
+      // The ratio changes when the window moves between displays, and
+      // the halftone cell is defined in whole device pixels.
+      renderer.setPixelRatio(pixelRatio());
       renderer.setSize(width, height);
-      camera.aspect = width / height;
+      three.setPixelRatio(renderer.getPixelRatio());
       updateCameraForViewport(width, height);
 
       // Shift the rendered frame so its vertical center lands on the safe
       // area's center rather than the full viewport's center. A positive
       // offsetY moves the rendered content up the screen (verified against
-      // three's PerspectiveCamera.updateProjectionMatrix, which subtracts
-      // offsetY from the frustum's near-plane top — increasing offsetY
-      // pushes objects toward NDC +1, i.e. the top of the viewport).
+      // three's OrthographicCamera.updateProjectionMatrix, which computes
+      // `top -= scaleH * view.offsetY` — the same sign convention the
+      // perspective camera uses, so this survived the switch unchanged).
       const bottomInset = bottomInsetFor(width);
       const offsetY = (bottomInset - TOP_INSET) / 2;
       camera.setViewOffset(width, height, 0, offsetY, width, height);
@@ -202,10 +228,11 @@ export default function BlockScene({ scene }: BlockSceneProps) {
 
 interface BuiltScene {
   threeScene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
+  camera: THREE.OrthographicCamera;
   lookAtHeight: number;
   updateCameraForViewport: (width: number, height: number) => void;
   dispose: () => void;
+  setPixelRatio: (pixelRatio: number) => void;
   hasHidden: () => boolean;
   revealOne: () => void;
   driftColor: () => void;
@@ -213,12 +240,16 @@ interface BuiltScene {
   driftRng: () => number;
 }
 
-function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene {
+function buildScene(
+  scene: SceneSpec,
+  prefersReducedMotion: boolean,
+  pixelRatio: number,
+): BuiltScene {
   const threeScene = new THREE.Scene();
   const blocks = scene.blocks;
 
-  const geometry = shadeOnlyBoxGeometry();
-  const material = new THREE.MeshBasicMaterial({ vertexColors: true });
+  const geometry = createPrintGeometry(BLOCK_SCALE, buildNeighbourMasks(blocks));
+  const material = createPrintMaterial(pixelRatio);
   const mesh = blocks.length > 0 ? new THREE.InstancedMesh(geometry, material, blocks.length) : null;
 
   const seed = blockListSeed(blocks);
@@ -231,6 +262,9 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
   const hiddenScale = new THREE.Vector3(0, 0, 0);
   const tmpColor = new THREE.Color();
 
+  // setColorAt has to run here, before the first render: three decides
+  // whether to declare `instanceColor` in the shader at program-compile
+  // time, from whether the mesh has instance colours at all.
   if (mesh) {
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
@@ -244,47 +278,42 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
     threeScene.add(mesh);
   }
 
-  // Solid bounds of the sculpture, not of the nominal ring grid. Weeks
-  // below the anonymity threshold and weeks still in the future emit no
-  // blocks, so for most of the year the grid is mostly empty air — framing
-  // it instead of the blocks is what used to leave the sculpture small.
-  const solidHalfExtent = Math.max(scene.halfExtent + BLOCK_OVERHANG, 1);
-  const solidHeight = Math.max(scene.height, 1);
-  const lookAtHeight = solidHeight / 2;
+  // Worst-case projected silhouette of the solid, not of the nominal ring
+  // grid. Weeks below the anonymity threshold and weeks still in the
+  // future emit no blocks, so for most of the year the grid is mostly
+  // empty air — framing that instead of the blocks is what used to leave
+  // the sculpture small.
+  const extents = projectedExtents(columnsOf(blocks), BLOCK_OVERHANG, {
+    yawSamples: YAW_SAMPLES,
+    elevationRange: [MIN_ELEVATION, MAX_ELEVATION],
+    elevationSamples: ELEVATION_SAMPLES,
+    defaultElevation: DEFAULT_ELEVATION,
+  });
+  const lookAtHeight = extents.targetHeight;
 
-  const camera = new THREE.PerspectiveCamera(FOV_DEG, 1, 0.1, 1000);
-  const elevation = THREE.MathUtils.degToRad(42);
-
-  // Bounding-sphere radius around the sculpture (footprint diagonal, safe
-  // for any orbit angle) and its half height.
-  const footprintRadius = solidHalfExtent * Math.SQRT2;
-  const radius = Math.hypot(footprintRadius, solidHeight / 2);
-
-  const tanVHalf = Math.tan(THREE.MathUtils.degToRad(FOV_DEG) / 2);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
 
   function updateCameraForViewport(width: number, height: number) {
-    const aspect = width / height;
     const bandHeight = Math.max(200, height - TOP_INSET - bottomInsetFor(width));
+    const { halfW, halfH } = orthoFrustum(extents, width, height, bandHeight, FIT_MARGIN);
 
-    // Two independent pixel-space constraints on the sphere's apparent
-    // half-extent: the full width (nothing eats into it), and the safe
-    // vertical band between header and footer (bandHeight, not the full
-    // viewport height). Each is expressed as a tangent of a half-angle
-    // through the camera's fixed vertical FOV — since the physical FOV
-    // always maps across the *full* render height, a smaller pixel budget
-    // (bandHeight) corresponds to a proportionally smaller tangent budget,
-    // not a proportionally smaller angle (tan, not the angle itself, is
-    // what's linear in near-plane/screen position).
-    const tanHHalf = tanVHalf * aspect;
-    const tanVBandHalf = tanVHalf * (bandHeight / height);
-    const thetaAllowed = Math.atan(Math.min(tanHHalf, tanVBandHalf));
+    camera.left = -halfW;
+    camera.right = halfW;
+    camera.top = halfH;
+    camera.bottom = -halfH;
 
-    const distance = (radius / Math.sin(thetaAllowed)) * FIT_MARGIN;
+    // Orthographic depth is linear and independent of distance, so the
+    // camera only has to stand far enough back that the whole solid sits
+    // between the near and far planes.
+    const span = Math.hypot(halfW, halfH);
+    const distance = Math.max(10, 4 * span);
+    camera.near = 0.1;
+    camera.far = 2 * distance + 4 * span;
 
     camera.position.set(
       0,
-      lookAtHeight + distance * Math.sin(elevation),
-      distance * Math.cos(elevation),
+      lookAtHeight + distance * Math.sin(DEFAULT_ELEVATION),
+      distance * Math.cos(DEFAULT_ELEVATION),
     );
     camera.lookAt(0, lookAtHeight, 0);
   }
@@ -349,54 +378,21 @@ function buildScene(scene: SceneSpec, prefersReducedMotion: boolean): BuiltScene
     material.dispose();
   }
 
+  function setPixelRatio(next: number) {
+    updatePrintMaterialScale(material, next);
+  }
+
   return {
     threeScene,
     camera,
     lookAtHeight,
     updateCameraForViewport,
     dispose,
+    setPixelRatio,
     hasHidden,
     revealOne,
     driftColor,
     revealRng,
     driftRng,
   };
-}
-
-// BoxGeometry (default 1x1x1 segment) emits exactly 24 vertices, 4 per
-// face, in the fixed order +x, -x, +y, -y, +z, -z — verified by reading
-// the buildPlane() call sequence in three's BoxGeometry source
-// (node_modules/three/src/geometries/BoxGeometry.js), which calls
-// buildPlane for px, nx, py, ny, pz, nz in that order with no other faces
-// or vertex reordering in between.
-const FACE_SHADE = [0.86, 0.86, 1.0, 0.6, 0.74, 0.74]; // +x, -x, +y, -y, +z, -z
-const VERTS_PER_FACE = 4;
-
-/**
- * A block geometry carrying only the per-face SHADE FACTORS as grayscale
- * vertex colors (no block-color baked in). Combined with a per-instance
- * color (`InstancedMesh.setColorAt`) on a `vertexColors: true` material,
- * three multiplies vertex color × instance color in the shader
- * (see ShaderChunk/color_vertex.glsl.js: `vColor.rgb *= instanceColor.rgb`),
- * so the top face (shade 1.0) still renders as exactly the instance's
- * token color, and side/bottom faces are proportionally darker — this
- * lets a single mesh serve both block colors instead of one mesh each.
- */
-function shadeOnlyBoxGeometry(): THREE.BoxGeometry {
-  const geometry = new THREE.BoxGeometry(BLOCK_SCALE, BLOCK_SCALE, BLOCK_SCALE);
-  const vertexCount = geometry.attributes.position.count;
-  const colors = new Float32Array(vertexCount * 3);
-
-  for (let face = 0; face < FACE_SHADE.length; face++) {
-    const shade = FACE_SHADE[face];
-    for (let v = 0; v < VERTS_PER_FACE; v++) {
-      const vertexIndex = face * VERTS_PER_FACE + v;
-      colors[vertexIndex * 3] = shade;
-      colors[vertexIndex * 3 + 1] = shade;
-      colors[vertexIndex * 3 + 2] = shade;
-    }
-  }
-
-  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-  return geometry;
 }
