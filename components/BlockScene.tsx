@@ -13,7 +13,13 @@ import {
   selectInitiallyHidden,
 } from "@/lib/carve-schedule";
 import { buildNeighbourMasks } from "@/lib/neighbour-mask";
-import { columnsOf, orthoFrustum, projectedExtents, safeBandHeight } from "@/lib/ortho-fit";
+import {
+  columnsOf,
+  coverFrustum,
+  dampedExtents,
+  extentsAtOrientation,
+  projectedExtents,
+} from "@/lib/ortho-fit";
 import type { Block, BlockColor, SceneSpec } from "@/lib/types";
 import {
   createPrintGeometry,
@@ -35,52 +41,21 @@ const COLOR_HEX: Record<BlockColor, string> = {
   zest: YUZU_ZEST,
 };
 
-// Safe-area insets (px) reserved for page chrome: the sculpture is fit
-// and framed into the band between them.
+// The sculpture is framed to COVER the viewport: it runs off every edge
+// and under the page chrome. The lead copy sitting on top of it is the
+// intended read, so no safe area is reserved and the earlier chrome
+// measurement is gone with it.
 //
-// The chrome is measured rather than assumed. Its height depends on the
-// viewport width, on how the copy wraps and on which font has loaded, so
-// a constant is only ever right for the viewport it was read off — the
-// figures below are what the measurement replaced, and they understated
-// the lead by 43px at 401x390, which put the solid on top of the text.
-// They survive only as the fallback for a page rendered without chrome.
-//
-// On desktop the lead sits bottom-left while the sculpture is centred, so
-// the bottom inset only has to clear the footer bar; reserving the lead's
-// full height there would shrink the sculpture across the whole width to
-// avoid a corner it barely reaches.
-const FALLBACK_TOP_INSET = 64;
-const FALLBACK_BOTTOM_INSET_DESKTOP = 104;
-const FALLBACK_BOTTOM_INSET_MOBILE = 208;
-const MOBILE_BREAKPOINT = 768;
+// Overscan is how far past a bare cover fit the solid is pushed — 1.0
+// would have it touch two edges exactly, and above that it bleeds off
+// all four.
+const OVERSCAN = 1.08;
 
-/** Clearance kept between the solid and the nearest piece of chrome. */
-const CHROME_MARGIN = 8;
-
-interface Insets {
-  top: number;
-  bottom: number;
-}
-
-function chromeInsets(width: number, height: number): Insets {
-  const header = document.querySelector(".chrome-header");
-  const footer = document.querySelector(".chrome-footer");
-  const lead = document.querySelector(".chrome-lead");
-
-  const top = header
-    ? header.getBoundingClientRect().bottom + CHROME_MARGIN
-    : FALLBACK_TOP_INSET;
-
-  const below: Element[] = footer ? [footer] : [];
-  if (lead && width < MOBILE_BREAKPOINT) below.push(lead);
-
-  if (below.length === 0) {
-    return { top, bottom: bottomInsetFor(width) };
-  }
-
-  const highestEdge = Math.min(...below.map((el) => el.getBoundingClientRect().top));
-  return { top, bottom: height - highestEdge + CHROME_MARGIN };
-}
+// How far the live framing is pulled toward the widest yaw. 0 follows the
+// silhouette exactly and swings the frame by sqrt(2) per revolution,
+// which crops past the point where the solid reads as a solid; 1 is a
+// fixed frame. See dampedExtents in lib/ortho-fit.ts.
+const FRAME_DAMPING = 0.65;
 
 // Orbit range, as elevation above the horizon. The orthographic fit is
 // tight rather than bounding-sphere loose, so it has to be computed over
@@ -99,19 +74,9 @@ const MAX_POLAR_ANGLE = Math.PI / 2 - MIN_ELEVATION;
 const YAW_SAMPLES = 72;
 const ELEVATION_SAMPLES = 5;
 
-// Slack over the exact fit, so the sculpture sits just inside the safe
-// area rather than exactly touching it.
-const FIT_MARGIN = 1.02;
-
 // Blocks are boxes of BLOCK_SCALE centred on their cell, so the solid
 // reaches half a block past the outermost cell centre.
 const BLOCK_OVERHANG = BLOCK_SCALE / 2;
-
-function bottomInsetFor(width: number): number {
-  return width < MOBILE_BREAKPOINT
-    ? FALLBACK_BOTTOM_INSET_MOBILE
-    : FALLBACK_BOTTOM_INSET_DESKTOP;
-}
 
 function blockListSeed(blocks: Block[]): string {
   return blocks.map((b) => `${b.x}.${b.y}.${b.z}.${b.color}`).join("|");
@@ -154,7 +119,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     const prefersReducedMotion = reduceMotionQuery.matches;
 
     const three = buildScene(scene, prefersReducedMotion, renderer.getPixelRatio());
-    const { threeScene, camera, updateCameraForViewport } = three;
+    const { threeScene, camera, updateFrustum } = three;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableZoom = false;
@@ -169,6 +134,19 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     controls.target.set(0, three.lookAtHeight, 0);
     controls.update();
 
+    // The frustum is re-fitted to the live orbit angles, so the viewport
+    // size is held here rather than passed down from each call site.
+    let viewWidth = 1;
+    let viewHeight = 1;
+    function refitFrustum() {
+      updateFrustum(
+        viewWidth,
+        viewHeight,
+        controls.getAzimuthalAngle(),
+        Math.PI / 2 - controls.getPolarAngle(),
+      );
+    }
+
     function resize() {
       const width = container!.clientWidth;
       const height = container!.clientHeight;
@@ -178,18 +156,9 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       renderer.setSize(width, height);
       three.setPixelRatio(renderer.getPixelRatio());
 
-      const insets = chromeInsets(width, height);
-      updateCameraForViewport(width, height, insets);
-
-      // Shift the rendered frame so its vertical center lands on the safe
-      // area's center rather than the full viewport's center. A positive
-      // offsetY moves the rendered content up the screen (verified against
-      // three's OrthographicCamera.updateProjectionMatrix, which computes
-      // `top -= scaleH * view.offsetY` — the same sign convention the
-      // perspective camera uses, so this survived the switch unchanged).
-      const offsetY = (insets.bottom - insets.top) / 2;
-      camera.setViewOffset(width, height, 0, offsetY, width, height);
-      camera.updateProjectionMatrix();
+      viewWidth = width;
+      viewHeight = height;
+      refitFrustum();
 
       if (prefersReducedMotion) renderer.render(threeScene, camera);
     }
@@ -212,6 +181,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     // work forever on an identical image — render on demand instead.
     let rafId = 0;
     function renderOnDemand() {
+      refitFrustum();
       renderer.render(threeScene, camera);
     }
 
@@ -221,6 +191,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     } else {
       const animate = () => {
         controls.update();
+        refitFrustum();
         renderer.render(threeScene, camera);
         rafId = requestAnimationFrame(animate);
       };
@@ -276,7 +247,7 @@ interface BuiltScene {
   threeScene: THREE.Scene;
   camera: THREE.OrthographicCamera;
   lookAtHeight: number;
-  updateCameraForViewport: (width: number, height: number, insets: Insets) => void;
+  updateFrustum: (width: number, height: number, yaw: number, elevation: number) => void;
   dispose: () => void;
   setPixelRatio: (pixelRatio: number) => void;
   hasHidden: () => boolean;
@@ -329,7 +300,8 @@ function buildScene(
   // future emit no blocks, so for most of the year the grid is mostly
   // empty air — framing that instead of the blocks is what used to leave
   // the sculpture small.
-  const extents = projectedExtents(columnsOf(blocks), BLOCK_OVERHANG, {
+  const fitColumns = columnsOf(blocks);
+  const extents = projectedExtents(fitColumns, BLOCK_OVERHANG, {
     yawSamples: YAW_SAMPLES,
     elevationRange: [MIN_ELEVATION, MAX_ELEVATION],
     elevationSamples: ELEVATION_SAMPLES,
@@ -339,29 +311,40 @@ function buildScene(
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
 
-  function updateCameraForViewport(width: number, height: number, insets: Insets) {
-    const bandHeight = safeBandHeight(height, insets.top, insets.bottom);
-    const { halfW, halfH } = orthoFrustum(extents, width, height, bandHeight, FIT_MARGIN);
+  // Orthographic depth is linear and independent of distance, so the
+  // camera only has to stand far enough back that the whole solid sits
+  // between the near and far planes. OrbitControls holds this radius
+  // (zoom is disabled), so it is set once and never touched again — only
+  // the frustum moves after this.
+  const worstSpan = Math.hypot(extents.halfWidth, extents.halfHeight);
+  const distance = Math.max(10, 4 * worstSpan);
+  camera.near = 0.1;
+  camera.far = 2 * distance + 4 * worstSpan;
+  camera.position.set(
+    0,
+    lookAtHeight + distance * Math.sin(DEFAULT_ELEVATION),
+    distance * Math.cos(DEFAULT_ELEVATION),
+  );
+  camera.lookAt(0, lookAtHeight, 0);
+
+  /**
+   * Re-sizes the frustum to the silhouette AT THE CURRENT ORIENTATION,
+   * every frame. A square footprint's apparent width swings by sqrt(2)
+   * as it turns; sizing for the worst yaw is what kept the sculpture
+   * small at every other one. Because the fit covers rather than
+   * contains, the swing now reads as the frame breathing against a
+   * silhouette that is always cropped.
+   */
+  function updateFrustum(width: number, height: number, yaw: number, elevation: number) {
+    const live = extentsAtOrientation(fitColumns, BLOCK_OVERHANG, yaw, elevation, lookAtHeight);
+    const framed = dampedExtents(live, extents, FRAME_DAMPING);
+    const { halfW, halfH } = coverFrustum(framed, width, height, OVERSCAN);
 
     camera.left = -halfW;
     camera.right = halfW;
     camera.top = halfH;
     camera.bottom = -halfH;
-
-    // Orthographic depth is linear and independent of distance, so the
-    // camera only has to stand far enough back that the whole solid sits
-    // between the near and far planes.
-    const span = Math.hypot(halfW, halfH);
-    const distance = Math.max(10, 4 * span);
-    camera.near = 0.1;
-    camera.far = 2 * distance + 4 * span;
-
-    camera.position.set(
-      0,
-      lookAtHeight + distance * Math.sin(DEFAULT_ELEVATION),
-      distance * Math.cos(DEFAULT_ELEVATION),
-    );
-    camera.lookAt(0, lookAtHeight, 0);
+    camera.updateProjectionMatrix();
   }
 
   // --- Carving animation state -------------------------------------------
@@ -432,7 +415,7 @@ function buildScene(
     threeScene,
     camera,
     lookAtHeight,
-    updateCameraForViewport,
+    updateFrustum,
     dispose,
     setPixelRatio,
     hasHidden,

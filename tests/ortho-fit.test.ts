@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  MIN_BAND_FRACTION,
   columnsOf,
-  orthoFrustum,
+  coverFrustum,
+  extentsAtOrientation,
   projectedExtents,
-  safeBandHeight,
 } from "@/lib/ortho-fit";
 import type { ExtentOptions } from "@/lib/ortho-fit";
 import { mulberry32 } from "@/lib/seed";
@@ -114,36 +113,88 @@ describe("projectedExtents", () => {
   });
 });
 
-describe("orthoFrustum", () => {
-  const extents = { halfWidth: 10, halfHeight: 4, targetHeight: 2 };
+describe("extentsAtOrientation", () => {
+  it("matches the closed form for a single column", () => {
+    const single = columnsOf([block(0, 0, 0)]);
+    const axis = extentsAtOrientation(single, OVERHANG, 0, DEFAULT_ELEVATION, 0);
+    expect(axis.halfWidth).toBeCloseTo(0.5, 10);
 
-  it("keeps world units square", () => {
-    const wide = orthoFrustum(extents, 1600, 900, 900, 1);
-    expect(wide.halfW / wide.halfH).toBeCloseTo(1600 / 900, 12);
-
-    const tall = orthoFrustum(extents, 400, 900, 500, 1);
-    expect(tall.halfW / tall.halfH).toBeCloseTo(400 / 900, 12);
+    const diagonal = extentsAtOrientation(single, OVERHANG, Math.PI / 4, DEFAULT_ELEVATION, 0);
+    expect(diagonal.halfWidth).toBeCloseTo(Math.SQRT2 / 2, 10);
   });
 
-  it("lets the width constraint bind on a wide viewport with no reserved bands", () => {
-    const fit = orthoFrustum(extents, 1600, 900, 900, 1);
-    expect(fit.halfW).toBeCloseTo(10, 12);
+  it("never exceeds the worst case taken over the whole orbit", () => {
+    const columns = columnsOf(ringOfBlocks());
+    const worst = projectedExtents(columns, OVERHANG, OPTIONS);
+    const [loE, hiE] = OPTIONS.elevationRange;
+    const rng = mulberry32(4);
+
+    for (let i = 0; i < 60; i++) {
+      const yaw = rng() * 2 * Math.PI;
+      const elevation = loE + rng() * (hiE - loE);
+      const live = extentsAtOrientation(
+        columns,
+        OVERHANG,
+        yaw,
+        elevation,
+        worst.targetHeight,
+      );
+      expect(live.halfWidth).toBeLessThanOrEqual(worst.halfWidth + 1e-9);
+      expect(live.halfHeight).toBeLessThanOrEqual(worst.halfHeight + 1e-9);
+    }
   });
 
-  it("lets the band constraint bind once chrome eats the height", () => {
-    const fit = orthoFrustum(extents, 1600, 900, 450, 1);
-    // halfHeight 4 over half the height -> 8 world units of vertical
-    // budget, times the aspect ratio.
-    expect(fit.halfH).toBeCloseTo(8, 12);
-    expect(fit.halfW).toBeCloseTo(8 * (1600 / 900), 12);
+  it("swings by sqrt(2) across a revolution of a square footprint", () => {
+    // The reason for re-fitting per frame rather than once.
+    const columns = columnsOf(squareFootprint(6));
+    const faceOn = extentsAtOrientation(columns, OVERHANG, 0, DEFAULT_ELEVATION, 0);
+    const diagonal = extentsAtOrientation(columns, OVERHANG, Math.PI / 4, DEFAULT_ELEVATION, 0);
+    expect(diagonal.halfWidth / faceOn.halfWidth).toBeCloseTo(Math.SQRT2, 2);
   });
 
-  it("applies the margin as slack", () => {
-    const snug = orthoFrustum(extents, 1600, 900, 900, 1);
-    const loose = orthoFrustum(extents, 1600, 900, 900, 1.02);
-    expect(loose.halfW / snug.halfW).toBeCloseTo(1.02, 12);
+  it("stays finite for an empty sculpture", () => {
+    const empty = extentsAtOrientation([], OVERHANG, 1, 1, 0);
+    expect(empty.halfWidth).toBeGreaterThan(0);
+    expect(empty.halfHeight).toBeGreaterThan(0);
   });
 });
+
+describe("coverFrustum", () => {
+  const extents = { halfWidth: 10, halfHeight: 4 };
+
+  it("keeps world units square", () => {
+    const fit = coverFrustum(extents, 1600, 900, 1);
+    expect(fit.halfW / fit.halfH).toBeCloseTo(1600 / 900, 12);
+  });
+
+  it("takes the smaller constraint, so the solid runs off an edge", () => {
+    // Contain would take the larger (10) and leave slack; cover takes
+    // 4 * 16/9 = 7.11 and lets the width overflow.
+    const fit = coverFrustum(extents, 1600, 900, 1);
+    expect(fit.halfW).toBeCloseTo(4 * (1600 / 900), 12);
+    expect(fit.halfW).toBeLessThan(extents.halfWidth);
+  });
+
+  it("bleeds off both pairs of edges once overscan is above 1", () => {
+    const fit = coverFrustum(extents, 1600, 900, 1.15);
+    expect(fit.halfW).toBeLessThan(extents.halfWidth);
+    expect(fit.halfH).toBeLessThan(extents.halfHeight);
+  });
+
+  it("scales inversely with overscan", () => {
+    const bare = coverFrustum(extents, 1600, 900, 1);
+    const pushed = coverFrustum(extents, 1600, 900, 1.15);
+    expect(bare.halfW / pushed.halfW).toBeCloseTo(1.15, 12);
+  });
+});
+
+function squareFootprint(half: number): Block[] {
+  const blocks: Block[] = [];
+  for (let x = -half; x <= half; x++) {
+    for (let z = -half; z <= half; z++) blocks.push(block(x, 0, z));
+  }
+  return blocks;
+}
 
 function ringOfBlocks(): Block[] {
   const blocks: Block[] = [];
@@ -170,45 +221,3 @@ function randomBlocks(): Block[] {
   }
   return blocks;
 }
-
-describe("safeBandHeight", () => {
-  const TOP = 64;
-  const BOTTOM_DESKTOP = 104;
-  const BOTTOM_MOBILE = 208;
-
-  it("reserves exactly the chrome on viewports that can seat it", () => {
-    expect(safeBandHeight(900, TOP, BOTTOM_DESKTOP)).toBe(732);
-    expect(safeBandHeight(812, TOP, BOTTOM_MOBILE)).toBe(540);
-  });
-
-  it("keeps the band inside the chrome on a short viewport", () => {
-    // The case that put the sculpture on top of the lead copy: 390px tall
-    // leaves 118px between header and footer, and the old fixed 200px
-    // floor claimed 82px that were not there.
-    expect(safeBandHeight(390, TOP, BOTTOM_MOBILE)).toBe(118);
-  });
-
-  it("falls back to a share of the viewport when the chrome cannot fit", () => {
-    // 250 - 64 - 208 is negative, so there is no honest answer; the floor
-    // only has to stay positive and bounded.
-    expect(safeBandHeight(250, TOP, BOTTOM_MOBILE)).toBeCloseTo(250 * MIN_BAND_FRACTION, 10);
-  });
-
-  it("stays positive and never exceeds the viewport", () => {
-    for (const height of [120, 250, 300, 390, 500, 768, 900, 1440]) {
-      for (const bottom of [BOTTOM_DESKTOP, BOTTOM_MOBILE]) {
-        const band = safeBandHeight(height, TOP, bottom);
-        expect(band).toBeGreaterThan(0);
-        expect(band).toBeLessThanOrEqual(height);
-      }
-    }
-  });
-
-  it("never claims space the chrome already holds", () => {
-    // Whenever the honest band is the larger of the two, it is the one
-    // used — the floor can only ever apply below that crossover.
-    for (const height of [400, 500, 900]) {
-      expect(safeBandHeight(height, TOP, BOTTOM_MOBILE)).toBe(height - TOP - BOTTOM_MOBILE);
-    }
-  });
-});

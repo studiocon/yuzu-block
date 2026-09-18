@@ -171,48 +171,85 @@ function sampleRange(range: [number, number], count: number, extra: number): num
 }
 
 /**
- * Last-resort share of the viewport the sculpture keeps when the chrome
- * cannot be seated at all. See `safeBandHeight`.
+ * Projected half-extents at ONE orientation, measured about a fixed
+ * camera target. Cheap enough to run every frame: the sculpture's
+ * apparent width swings by up to sqrt(2) as a square footprint turns, so
+ * sizing the frustum to the worst yaw leaves it small at every other one.
  */
-export const MIN_BAND_FRACTION = 0.12;
+export function extentsAtOrientation(
+  columns: Column[],
+  overhang: number,
+  yaw: number,
+  elevation: number,
+  targetHeight: number,
+): { halfWidth: number; halfHeight: number } {
+  if (columns.length === 0) return { halfWidth: 1, halfHeight: 1 };
 
-/**
- * Height of the band between the page's header and footer, which is the
- * vertical space the sculpture is fitted into.
- *
- * On a viewport too short to seat the chrome, the subtraction runs to zero
- * or below, so the band is floored at a fraction of the viewport height.
- * The floor does let the sculpture reach into the chrome — but only where
- * there was no room for both to begin with, and the alternatives are a
- * frustum that collapses to a point or one that diverges. A fixed pixel
- * floor is what this replaced: it claimed space the viewport did not have
- * at any height below `topInset + bottomInset + floor`, which put the
- * sculpture on top of the lead copy rather than above it.
- */
-export function safeBandHeight(height: number, topInset: number, bottomInset: number): number {
-  return Math.max(height * MIN_BAND_FRACTION, height - topInset - bottomInset);
+  const cosT = Math.cos(yaw);
+  const sinT = Math.sin(yaw);
+  const cosE = Math.cos(elevation);
+  const sinE = Math.sin(elevation);
+  const corner = overhang * (Math.abs(sinT) + Math.abs(cosT));
+
+  let maxAbsU = 0;
+  let maxS = -Infinity;
+  let top = -Infinity;
+  for (const c of columns) {
+    const u = Math.abs(c.x * cosT - c.z * sinT);
+    if (u > maxAbsU) maxAbsU = u;
+    const s = c.x * sinT + c.z * cosT;
+    if (s > maxS) maxS = s;
+    const v = c.height * cosE - s * sinE;
+    if (v > top) top = v;
+  }
+
+  const targetV = targetHeight * cosE;
+  const vTop = top + corner * sinE;
+  const vBottom = -(maxS + corner) * sinE;
+
+  return {
+    halfWidth: maxAbsU + corner,
+    halfHeight: Math.max(vTop - targetV, targetV - vBottom, 1e-6),
+  };
 }
 
 /**
- * Orthographic half-extents for a viewport, honouring the same two
- * constraints the perspective fit used: the sculpture may use the full
- * width, but vertically only the safe band between header and footer.
- *
- * Pixels are square, so halfW / halfH is pinned to the aspect ratio and
- * the binding constraint is whichever demands the larger frustum. Note
- * the band term's direction: a *smaller* pixel budget needs a *larger*
- * world frustum to keep the solid inside it, hence height / bandHeight.
+ * Orthographic half-extents that make the solid COVER the viewport
+ * rather than fit inside it: the frustum takes the smaller of the two
+ * axis constraints, so the silhouette runs off at least one pair of
+ * edges, and `overscan` above 1 pushes it off both. Page chrome is not
+ * reserved against — the sculpture is meant to run under it.
  */
-export function orthoFrustum(
-  extents: ProjectedExtents,
+export function coverFrustum(
+  extents: { halfWidth: number; halfHeight: number },
   width: number,
   height: number,
-  bandHeight: number,
-  margin: number,
+  overscan: number,
 ): { halfW: number; halfH: number } {
   const aspect = width / height;
-  const halfW =
-    margin *
-    Math.max(extents.halfWidth, extents.halfHeight * aspect * (height / bandHeight));
+  const halfW = Math.min(extents.halfWidth, extents.halfHeight * aspect) / overscan;
   return { halfW, halfH: halfW / aspect };
+}
+
+/**
+ * Blends the live silhouette toward the worst case over the whole orbit.
+ *
+ * A square footprint is sqrt(2) narrower face-on than corner-on, and a
+ * cover fit has to zoom IN to keep a narrower silhouette covering the
+ * frame. Fitting the live extents alone therefore swings the framing by
+ * 1.41x per revolution, which at the tight end crops past the point
+ * where the solid still reads as a solid. Damping at 1 pins the framing
+ * to the widest yaw (no motion, but gaps at the narrow ones); at 0 it
+ * follows the silhouette exactly. In between, the frame breathes without
+ * losing the form.
+ */
+export function dampedExtents(
+  live: { halfWidth: number; halfHeight: number },
+  worst: { halfWidth: number; halfHeight: number },
+  damping: number,
+): { halfWidth: number; halfHeight: number } {
+  return {
+    halfWidth: live.halfWidth + (worst.halfWidth - live.halfWidth) * damping,
+    halfHeight: live.halfHeight + (worst.halfHeight - live.halfHeight) * damping,
+  };
 }
