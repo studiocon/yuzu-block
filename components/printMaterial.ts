@@ -1,17 +1,22 @@
-// The sculpture's surface: a two-ink screen print with a drawn cell grid.
+// The sculpture's surface: an eight-ink screen print.
 //
 // Everything happens in one material on one InstancedMesh, so the scene
 // is still a single draw call and there is no post-processing pass.
+// Two independent reads of the same ordered screen decide each pixel,
+// and both are hard thresholds — never a blend, so every pixel lands
+// exactly on a palette token and no in-between colour is produced.
 //
-//  - Tone. There is no lighting in this scene (by product rule), so the
-//    six per-face constants are not brightness — they are INK COVERAGE.
-//    An ordered Bayer threshold picks, per pixel, between the block's
-//    palette token and the paper. Hard threshold, never a blend: every
-//    pixel lands exactly on a palette token, and no in-between colour is
-//    ever produced.
-//  - Line. Each cell is outlined from its own face UVs, at a constant
-//    screen width via fwidth(), and edges that run across a flat stretch
-//    of surface are dropped using the neighbour mask.
+//  - How much ink. There is no lighting in this scene (by product
+//    rule), so the six per-face constants are not brightness, they are
+//    INK COVERAGE. The first read picks ink or the stock beneath it.
+//  - Which ink. A block's tone is a position on the ramp in
+//    lib/palette.ts; the second read picks between the two stops it
+//    falls between, so the ramp passes through continuously.
+//
+// Cells were once outlined here too. At the framing the page uses a
+// cell is four or five pixels, so a one-pixel line around one sat on
+// the resolution limit and re-aliased every frame of the turn — see
+// .claude/lessons/rendering.md.
 
 import * as THREE from "three";
 import { INK_RAMP, SURFACE_BORDER } from "@/lib/palette";

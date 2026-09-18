@@ -5,8 +5,8 @@
 // The sculpture always converges to the server snapshot (`scene.blocks`)
 // and never exceeds it: this module only ever hides a bounded initial
 // subset (capped at 10% of the total) and reveals it over time, or
-// re-colors an existing column between the two block tokens while
-// holding the overall zest proportion close to the snapshot's.
+// slides an existing column along the ink ramp while holding the mean
+// tone close to the snapshot's.
 
 import { hashString, mulberry32 } from "./seed";
 import type { Block } from "./types";

@@ -12,7 +12,7 @@ Shows weekly aggregate rings:
 
 - record count → block height
 - silence-day ratio → gaps in the ring
-- words-per-record → a second block color
+- words-per-record → where a week sits on the ink ramp
 
 The sculpture itself carries no text, numbers, or labels. Page chrome
 around it is limited to the YUZU logo (linking to
@@ -197,32 +197,94 @@ characters, not words.
 ## Rendering
 
 The scene is a snapshot: `SceneSpec` is generated server-side on every
-request and handed to the client once. A slow, continuous camera orbit
-runs throughout. On top of the snapshot, the client holds back about 10%
-of its blocks at first paint and reveals them one at a time on a bounded
-schedule, and independently re-colors whole cell columns between the two
-tokens while holding the overall color balance close to the snapshot's —
-the sculpture reads as continuously carved, but it converges to the
-snapshot and never adds anything beyond it. `prefers-reduced-motion`
-renders the finished snapshot with no camera motion and no carving, and
-draws on demand rather than running a render loop over a still image.
+request and handed to the client once. On top of it the client holds
+back about 10% of the blocks at first paint and reveals them one at a
+time on a bounded schedule, and independently slides whole cell columns
+along the ink ramp while holding the mean tone close to the snapshot's.
+The sculpture reads as continuously carved, but it converges to the
+snapshot and never adds anything beyond it.
 
-The camera frames the blocks that actually exist, not the nominal ring
-grid: weeks below the anonymity threshold and weeks still ahead in the
-year emit nothing, so early in a year most of the grid is empty. The fit
-is a bounding sphere around the occupied footprint, sized against the
-full render width and against the chrome-free vertical band, so the
-sculpture stays clear of the header and footer at every orbit angle
-without the empty grid pushing the camera back.
+`prefers-reduced-motion` renders the finished snapshot with no camera
+motion and no carving, and draws on demand rather than running a render
+loop over a still image.
 
-Blocks are unlit, per-face tints of the two block tokens defined in
-`lib/palette.ts` — side faces are fixed, darker multiples of the same
-top-face color, not a separate token or a lighting effect. Colors
-actually rendered:
+### Camera
 
-- `YUZU_YELLOW` `#F5D84A`
-- `YUZU_ZEST` `#E8A020`
-- `YUZU_WHITE` `#FAFAF5` (background)
+Orthographic, axonometric. It turns continuously and also eases its
+elevation between 31 and 53 degrees over about a minute — yaw alone
+reads flat, because the face angles never change.
+
+The frame **covers** the viewport rather than fitting inside it: the
+solid runs off all four edges and under the page chrome, which the lead
+copy sits on top of by design. Nothing is reserved for the chrome.
+
+A square footprint is sqrt(2) narrower face-on than corner-on, so the
+frustum is re-fitted to the live orbit angles every frame and then
+pulled partway back toward the widest case (`dampedExtents`). Fitting
+the live silhouette alone swings the framing by the full sqrt(2), which
+crops past the point where the solid still reads as a solid.
+
+### Surface
+
+Unlit. There is no lighting in the scene, so the six per-face constants
+are not brightness — they are ink coverage. Two independent reads of one
+ordered (Bayer) screen decide every pixel:
+
+- how much ink, from the face's coverage, against the stock beneath it
+- which ink, from the block's position on the ramp, between the two
+  stops it falls between
+
+Both are hard thresholds, never a blend, so every pixel lands exactly on
+a palette token and no in-between colour is produced. Anti-aliased
+silhouette edges are the one exception. The screen is anchored to the
+solid rather than to the viewport: anchored to the viewport the faces
+slide across a fixed grid of dots as the solid turns, and the whole
+surface scintillates.
+
+The ramp is in `lib/palette.ts` as `INK_RAMP`, light to muted:
+
+`YUZU_PALE` `#FCEE8A` · `YUZU_LEMON` `#F8E262` · `YUZU_YELLOW` `#F5D84A` ·
+`YUZU_GOLD` `#EBCB4A` · `YUZU_STRAW` `#E2C652` · `YUZU_LINEN` `#CCBB6B` ·
+`YUZU_STONE` `#BEB47D` · `YUZU_ASH` `#B3AC8E`
+
+`SURFACE_BORDER` `#E8E0C8` is the stock the ink sits on, and
+`YUZU_WHITE` `#FAFAF5` is the page — so the only true white inside the
+solid is a real void, which is a cell with no block, which is silent
+days.
+
+A block's place on the ramp comes from a smooth field across the
+footprint, per-column noise and per-block noise, plus the week's own
+measure when there is real data. Blocks are ranked against each other
+and the ramp's uneven stop positions divide the surface between the
+inks; see `lib/tone.ts`.
+
+### Ground
+
+One plane under the solid carries the nominal 52-week ring grid as
+concentric squares — most of that grid emits no blocks, so this is the
+stock the sculpture was cut from — plus a slowly drifting paper screen,
+and a misregistration slip every 7 to 19 seconds. It is transparent
+everywhere it has no mark, so the page's own background shows through.
+
+## Working on this
+
+`npm run check` (typecheck, lint, test, brand words) must pass before
+anything is considered done.
+
+`.claude/lessons/` holds findings from earlier sessions that are not
+recoverable from the code or the log — rendering traps, shader traps,
+how to read a deploy's state, test hygiene. Read it before starting.
+
+`npm run deploy:status` reports what Vercel is actually doing with a
+commit. GitHub returns `pending` for a commit with no checks at all, so
+`state` alone cannot tell a dropped push from a running build; the
+script separates them and exits 2 when the push was never received.
+`npm run deploy:wait` polls until it settles.
+
+`scripts/colour-audit.browser.js` counts the rendered ink shares by
+family and their spread across the frame. It has to run in the browser:
+what a viewer sees is weighted by which faces are turned toward the
+camera, not by how many blocks carry a tone.
 
 ## ElevenLabs
 

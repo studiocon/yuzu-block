@@ -27,8 +27,8 @@ import { createGround } from "./groundMaterial";
 import { createPrintGeometry, createPrintMaterial } from "./printMaterial";
 
 // Cells are unit cubes, so adjacent blocks meet exactly and the solid
-// reads as one mass. The per-cell articulation is carried by the shader's
-// outlines instead of by air gaps between the boxes.
+// reads as one mass, rather than as separated boxes with the page
+// showing through the gaps between them.
 const BLOCK_SCALE = 1;
 
 // Elements per instance in InstancedMesh's backing buffers.
@@ -261,7 +261,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
 
       const scheduleDrift = () => {
         driftTimer = setTimeout(() => {
-          three.driftColor();
+          three.driftTone();
           scheduleDrift();
         }, nextColorDriftDelay(three.driftRng));
       };
@@ -269,11 +269,11 @@ export default function BlockScene({ scene }: BlockSceneProps) {
 
       const scheduleRegistration = () => {
         registrationTimer = setTimeout(() => {
-          const { x, z } = nextRegistrationOffset(three.driftRng);
+          const { x, z } = nextRegistrationOffset(three.registrationRng);
           three.setRegistration(x, z);
           registrationHold = setTimeout(() => three.setRegistration(0, 0), registrationHoldMs);
           scheduleRegistration();
-        }, nextRegistrationDelay(three.driftRng));
+        }, nextRegistrationDelay(three.registrationRng));
       };
       scheduleRegistration();
     }
@@ -311,9 +311,10 @@ interface BuiltScene {
   setRegistration: (x: number, z: number) => void;
   hasHidden: () => boolean;
   revealOne: () => void;
-  driftColor: () => void;
+  driftTone: () => void;
   revealRng: () => number;
   driftRng: () => number;
+  registrationRng: () => number;
 }
 
 function buildScene(
@@ -412,11 +413,15 @@ function buildScene(
 
   // --- Carving animation state -------------------------------------------
   // Reveal: a shrinking pool of hidden block indices, drained one at a time.
-  // Color drift: an independent, indefinite re-coloring of whole columns
-  // that holds the overall zest proportion close to the snapshot's.
+  // Tone drift: an independent, indefinite sliding of whole columns
+  // along the ink ramp, holding the mean tone close to the snapshot's.
   const hiddenPool = [...hiddenIndices];
+  // One stream per timed behaviour. Two self-rescheduling timers drawing
+  // from the SAME stream interleave by wall clock, so neither sees a
+  // repeatable sequence and the seed stops meaning anything.
   const revealRng = mulberry32(hashString(`${seed}:reveal`));
   const driftRng = mulberry32(hashString(`${seed}:drift`));
+  const registrationRng = mulberry32(hashString(`${seed}:registration`));
 
   const currentTones: number[] = blocks.map((b) => b.tone);
   const columns = groupColumns(blocks);
@@ -443,7 +448,7 @@ function buildScene(
     mesh.instanceMatrix.needsUpdate = true;
   }
 
-  function driftColor(): void {
+  function driftTone(): void {
     if (!mesh) return;
     const drift = pickToneDrift(columns, currentTones, targetMeanTone, driftRng);
     if (!drift) return;
@@ -485,8 +490,9 @@ function buildScene(
     setRegistration: ground.setRegistration,
     hasHidden,
     revealOne,
-    driftColor,
+    driftTone,
     revealRng,
     driftRng,
+    registrationRng,
   };
 }

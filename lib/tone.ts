@@ -1,11 +1,11 @@
-// Where a column sits on the ink ramp, and how the ramp is shaped.
+// Where a block sits on the ink ramp, and how the ramp is shaped.
 //
 // Two inks could only ever make one transition, and colour assigned per
 // week made the year read as a few solid bands. Tone is a scalar per
-// column instead: the shader resolves it against a three-stop ramp and
-// dithers between the two stops it falls between, so the surface moves
-// continuously through the palette while every pixel still lands on one
-// token exactly.
+// block instead: the shader resolves it against the eight-stop ramp in
+// lib/palette.ts and dithers between the two stops it falls between, so
+// the surface moves continuously through the palette while every pixel
+// still lands on one token exactly.
 //
 // No three.js here; the ramp constants are mirrored into GLSL from this
 // module so the two cannot drift.
@@ -90,8 +90,8 @@ export interface ToneInput {
 }
 
 /**
- * A column's raw place in the ordering, before the ramp is shaped. Only
- * its ORDER against the other columns matters; the scale is arbitrary.
+ * A block's raw place in the ordering, before the ramp is shaped. Only
+ * its ORDER against the other blocks matters; the scale is arbitrary.
  */
 export function toneBase({ x, y, z, year, ring, cellIndex, signal }: ToneInput): number {
   const field = toneField(x, z, year);
@@ -117,8 +117,9 @@ export function toneFromRank(rank: number): number {
  *
  * Ranking rather than scaling is what makes the ink shares hold: the
  * rank of a value is flat by construction whatever shape the bases
- * have, so the ramp's gamma acts on the distribution it was designed
- * against. Ties keep input order, so this stays deterministic.
+ * have, so RAMP_POSITIONS divides an evenly spread ordering rather than
+ * whatever shape the field happened to produce. Ties keep input order,
+ * so this stays deterministic.
  */
 export function tonesFromBases(bases: number[]): number[] {
   if (bases.length === 0) return [];

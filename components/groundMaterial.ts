@@ -22,13 +22,13 @@ import * as THREE from "three";
 import { INK_MUTED, SURFACE_BORDER } from "@/lib/palette";
 
 /** Half-width of the nominal ring grid, in cells. 52 weeks plus the gutter. */
-export const RING_LIMIT = 52.5;
+const RING_LIMIT = 52.5;
 
 /** Plane size. Ortho and far larger than any frustum, so it fills the frame. */
 const PLANE_SIZE = 1200;
 
 /** Sits just under the solid, whose blocks bottom out at y = 0. */
-export const GROUND_Y = -0.02;
+const GROUND_Y = -0.02;
 
 const DOT_CSS_PX = 2;
 const RING_LINE_CSS_PX = 0.6;
