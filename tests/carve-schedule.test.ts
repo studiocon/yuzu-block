@@ -155,9 +155,7 @@ describe("pickToneDrift", () => {
     const drift = pickToneDrift(columns, flat, 0.4, () => 0);
     expect(drift).not.toBeNull();
     expect(drift!.indices).toHaveLength(3);
-    expect(Math.abs(drift!.toTone - 0.4)).toBeCloseTo(0.09, 10);
-    expect(drift!.toTone).toBeGreaterThanOrEqual(0);
-    expect(drift!.toTone).toBeLessThanOrEqual(1);
+    expect(Math.abs(drift!.delta)).toBeCloseTo(0.09, 10);
   });
 
   it("will not push the mean outside the guard", () => {
@@ -173,14 +171,45 @@ describe("pickToneDrift", () => {
     const { columns, flat } = columnsOfTones(Array.from({ length: 60 }, () => [0.9]));
     const drift = pickToneDrift(columns, flat, 0.88, () => 0);
     expect(drift).not.toBeNull();
-    expect(drift!.toTone).toBeLessThan(0.9);
+    expect(drift!.delta).toBeLessThan(0);
   });
 
   it("pushes back up when the mean has run low", () => {
     const { columns, flat } = columnsOfTones(Array.from({ length: 60 }, () => [0.1]));
     const drift = pickToneDrift(columns, flat, 0.12, () => 0);
     expect(drift).not.toBeNull();
-    expect(drift!.toTone).toBeGreaterThan(0.1);
+    expect(drift!.delta).toBeGreaterThan(0);
+  });
+
+  it("keeps a column's own grain instead of flattening it", () => {
+    // Blocks within a column no longer share a tone; a target would
+    // erase that, a delta preserves it.
+    const { columns, flat } = columnsOfTones(
+      Array.from({ length: 40 }, () => [0.30, 0.42, 0.51]),
+    );
+    const drift = pickToneDrift(columns, flat, 0.41, () => 0);
+    expect(drift).not.toBeNull();
+    const moved = drift!.indices.map((i) => flat[i] + drift!.delta);
+    expect(moved[1] - moved[0]).toBeCloseTo(0.12, 10);
+    expect(moved[2] - moved[1]).toBeCloseTo(0.09, 10);
+  });
+
+  it("will not exceed the guard when part of a column is against a stop", () => {
+    // Clamping shortens the real move, and the guard has to be checked
+    // against the move that actually happens.
+    const { columns, flat } = columnsOfTones([
+      [1, 1, 1],
+      ...Array.from({ length: 39 }, () => [0.5]),
+    ]);
+    const drift = pickToneDrift(columns, flat, 0.54, () => 0);
+    if (drift) {
+      const moved = drift.indices.reduce(
+        (n, i) => n + (Math.min(1, Math.max(0, flat[i] + drift.delta)) - flat[i]),
+        0,
+      );
+      const mean = (flat.reduce((n, t) => n + t, 0) + moved) / flat.length;
+      expect(Math.abs(mean - 0.54)).toBeLessThanOrEqual(0.02 + 1e-12);
+    }
   });
 
   it("is deterministic for a given rng", () => {

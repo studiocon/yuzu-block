@@ -106,16 +106,12 @@ export function aggregateToBlocks(
   );
   const signals = signalByBucketIndex(agg.buckets);
 
-  // Columns are collected first so their tones can be ranked against
-  // one another before any block is emitted: the ramp's shape is
-  // defined against a flat ordering, not against the raw field.
-  interface Column {
-    x: number;
-    z: number;
-    height: number;
-    base: number;
-  }
-  const columns: Column[] = [];
+  // Every block is collected first so the whole solid can be ranked
+  // before any tone is assigned: the ramp's shape is defined against a
+  // flat ordering, not against the raw field. Ranking per BLOCK rather
+  // than per column is also what stops a stack being drawn as one flat
+  // vertical stripe.
+  const placed: Array<{ x: number; y: number; z: number; base: number }> = [];
 
   for (const bucket of agg.buckets) {
     if (!bucket.sufficient || bucket.recordCount === null || bucket.silenceDayRatio === null) {
@@ -138,30 +134,20 @@ export function aggregateToBlocks(
         ? Math.max(1, Math.round((bucket.recordCount / maxRecordCount) * maxHeight))
         : 1;
     for (const [x, z] of filled) {
-      columns.push({
-        x,
-        z,
-        height,
-        base: toneBase({
+      const cell = cellIndex.get(`${x},${z}`) ?? 0;
+      for (let y = 0; y < height; y++) {
+        placed.push({
           x,
+          y,
           z,
-          year: agg.year,
-          ring: r,
-          cellIndex: cellIndex.get(`${x},${z}`) ?? 0,
-          signal,
-        }),
-      });
+          base: toneBase({ x, y, z, year: agg.year, ring: r, cellIndex: cell, signal }),
+        });
+      }
     }
   }
 
-  const tones = tonesFromBases(columns.map((c) => c.base));
-  const blocks: Block[] = [];
-  for (let i = 0; i < columns.length; i++) {
-    const { x, z, height: columnHeight } = columns[i];
-    for (let y = 0; y < columnHeight; y++) {
-      blocks.push({ x, y, z, tone: tones[i] });
-    }
-  }
+  const tones = tonesFromBases(placed.map((b) => b.base));
+  const blocks: Block[] = placed.map(({ x, y, z }, i) => ({ x, y, z, tone: tones[i] }));
 
   let halfExtent = 0;
   let height = 0;

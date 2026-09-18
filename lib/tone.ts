@@ -12,29 +12,47 @@
 
 import { hashString } from "./seed";
 
-/** Ramp position of the second stop. Below it the ramp runs from the
- *  first ink to the second, above it from the second to the third. */
-export const RAMP_SECOND_STOP = 0.62;
+/** Stops in lib/palette.ts INK_RAMP. */
+export const RAMP_STOPS = 8;
 
 /**
- * Rank is raised to this power, which pushes most columns toward the
- * first ink. Against a FLAT rank this puts the rendered ink areas near
- * 52 / 38 / 10 across the three stops — the first dominant, the second
- * common, the third scarce, which is the only proportion the third ink
- * is tolerable at.
+ * Where each stop sits on [0,1]. Not evenly spaced: the last segment is
+ * wider than the rest so the final ink gets enough area to register at
+ * all, without having to flatten the ramp's gamma to reach it.
+ *
+ * The gamma is a poor lever for that ink on its own — at eight even
+ * stops it sits above 6/7 of the ramp, where there is little mass
+ * whatever the gamma, and dropping the gamma far enough to feed it
+ * drags the whole solid dark. Segment width moves it without touching
+ * anything below.
+ */
+export const RAMP_POSITIONS = [0, 0.14, 0.28, 0.42, 0.55, 0.68, 0.81, 1] as const;
+
+/**
+ * Rank is raised to this power, which weights the ramp toward its light
+ * end and keeps the last stop scarce. Tuned against measured ink areas,
+ * not derived: see .claude/lessons/rendering.md.
  *
  * Flatness is why `toneFromRank` takes a rank rather than the raw field.
- * Applying this directly to field-plus-noise put the third ink at
+ * Applying this directly to field-plus-noise once put the last ink at
  * exactly 0% of rendered pixels: a smooth field summed with uniform
- * noise piles up around the middle, nothing reached the 0.787 the third
- * stop needs, and the share maths — which assumed a flat input — was
+ * noise piles up around the middle, nothing reached the top of the
+ * ramp, and the share maths — which assumed a flat input — was
  * describing a distribution that did not exist.
  */
-export const TONE_GAMMA = 2.0;
+export const TONE_GAMMA = 1.3;
 
-/** Share of a column's tone that comes from per-column noise rather
- *  than from the smooth field across the whole solid. */
-const JITTER_SHARE = 0.45;
+// How a block's place on the ramp is composed. The field is the sweep
+// across the whole solid; the column term keeps a stack loosely
+// together; the block term is what breaks it up.
+//
+// Tone used to be per COLUMN, which drew every stack as one flat
+// vertical stripe up to twenty blocks tall — the most conspicuous thing
+// on the surface. The block term is now the larger of the two noise
+// shares, so a stack reads as related rather than as one line.
+const FIELD_SHARE = 0.5;
+const COLUMN_SHARE = 0.15;
+const BLOCK_SHARE = 0.35;
 
 /** Share the data signal takes when there is real data to honour. */
 const SIGNAL_SHARE = 0.4;
@@ -60,6 +78,7 @@ export function toneField(x: number, z: number, year: number): number {
 
 export interface ToneInput {
   x: number;
+  y: number;
   z: number;
   year: number;
   ring: number;
@@ -76,22 +95,23 @@ export interface ToneInput {
  * A column's raw place in the ordering, before the ramp is shaped. Only
  * its ORDER against the other columns matters; the scale is arbitrary.
  */
-export function toneBase({ x, z, year, ring, cellIndex, signal }: ToneInput): number {
+export function toneBase({ x, y, z, year, ring, cellIndex, signal }: ToneInput): number {
   const field = toneField(x, z, year);
-  const jitter = unitFromHash(`${year}:${ring}:${cellIndex}:tone`);
+  const column = unitFromHash(`${year}:${ring}:${cellIndex}:tone`);
+  const block = unitFromHash(`${year}:${ring}:${cellIndex}:${y}:grain`);
 
-  const base = field * (1 - JITTER_SHARE) + jitter * JITTER_SHARE;
+  const base = field * FIELD_SHARE + column * COLUMN_SHARE + block * BLOCK_SHARE;
   if (signal === null) return base;
   return signal * SIGNAL_SHARE + base * (1 - SIGNAL_SHARE);
 }
 
-/** Ramp position for a column at `rank` in [0,1] of the ordering. */
+/** Ramp position for a block at `rank` in [0,1] of the ordering. */
 export function toneFromRank(rank: number): number {
   return Math.pow(Math.min(1, Math.max(0, rank)), TONE_GAMMA);
 }
 
 /**
- * Ramp positions for a whole solid, from each column's base.
+ * Ramp positions for a whole solid, from each block's base.
  *
  * Ranking rather than scaling is what makes the ink shares hold: the
  * rank of a value is flat by construction whatever shape the bases

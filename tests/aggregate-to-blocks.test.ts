@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aggregateToBlocks } from "@/lib/aggregate-to-blocks";
-import { toneField } from "@/lib/tone";
+import { RAMP_POSITIONS, RAMP_STOPS, toneField } from "@/lib/tone";
 import { generateAggregate } from "@/lib/mock-aggregate";
 import type { Block, RingAggregate } from "@/lib/types";
 
@@ -237,18 +237,37 @@ describe("tone placement", () => {
     expect(checked).toBeGreaterThan(10);
   });
 
-  it("keeps most of the solid on the first ink and very little on the third", () => {
-    // The third ink is only tolerable while it is scarce, and the ramp's
-    // gamma is what keeps it that way.
+  it("keeps the last ink scarce through the real pipeline", () => {
+    // The final stop is the one that is only tolerable while it stays
+    // small. Its share is the chance the screen picks it, which is zero
+    // below the penultimate stop and `along` above it.
     const scene = aggregateToBlocks(fullYearAggregate("blocks-tone-share"), {
       expressive: true,
     });
-    const tones = scene.blocks.map((b) => b.tone);
-    const mean = tones.reduce((n, t) => n + t, 0) / tones.length;
-    const nearThird = tones.filter((t) => t > 0.8).length / tones.length;
+    const last = RAMP_POSITIONS[RAMP_STOPS - 1];
+    const penultimate = RAMP_POSITIONS[RAMP_STOPS - 2];
+    const share =
+      scene.blocks.reduce(
+        (n, b) => n + (b.tone >= penultimate ? (b.tone - penultimate) / (last - penultimate) : 0),
+        0,
+      ) / scene.blocks.length;
 
-    expect(mean).toBeLessThan(0.45);
-    expect(nearThird).toBeLessThan(0.12);
+    expect(share).toBeGreaterThan(0.02);
+    expect(share).toBeLessThan(0.09);
+  });
+
+  it("uses the whole ramp, not a corner of it", () => {
+    const scene = aggregateToBlocks(fullYearAggregate("blocks-tone-coverage"), {
+      expressive: true,
+    });
+    // Every segment of the ramp should carry some of the solid, or
+    // stops have been added that never render.
+    for (let i = 0; i < RAMP_STOPS - 1; i++) {
+      const lo = RAMP_POSITIONS[i];
+      const hi = RAMP_POSITIONS[i + 1];
+      const inSegment = scene.blocks.filter((b) => b.tone >= lo && b.tone < hi).length;
+      expect(inSegment).toBeGreaterThan(0);
+    }
   });
 
   it("sweeps across the footprint rather than being pure noise", () => {

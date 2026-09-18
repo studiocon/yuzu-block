@@ -14,8 +14,8 @@
 //    of surface are dropped using the neighbour mask.
 
 import * as THREE from "three";
-import { SURFACE_BORDER, YUZU_ASH, YUZU_YELLOW, YUZU_ZEST } from "@/lib/palette";
-import { RAMP_SECOND_STOP } from "@/lib/tone";
+import { INK_RAMP, SURFACE_BORDER } from "@/lib/palette";
+import { RAMP_POSITIONS, RAMP_STOPS } from "@/lib/tone";
 
 // BoxGeometry (default 1x1x1 segment) emits exactly 24 vertices, 4 per
 // face, in the fixed order +x, -x, +y, -y, +z, -z — verified by reading
@@ -94,9 +94,8 @@ void main() {
 
 const FRAGMENT_SHADER = /* glsl */ `
 uniform vec3 uUnder;
-uniform vec3 uStopA;
-uniform vec3 uStopB;
-uniform vec3 uStopC;
+uniform vec3 uStops[${RAMP_STOPS}];
+const float STOP_AT[${RAMP_STOPS}] = float[${RAMP_STOPS}](${RAMP_POSITIONS.map((v) => v.toFixed(4)).join(", ")});
 
 varying float vCoverage;
 varying float vFaceId;
@@ -134,17 +133,19 @@ void main() {
   ivec2 mixCell = (cell + ivec2(${BAYER_SIZE / 2}, 1)) & ${BAYER_SIZE - 1};
   float mixThreshold = BAYER[mixCell.y * ${BAYER_SIZE} + mixCell.x];
 
-  // Three stops, two inks live at a time. Between them the screen is
+  // Eight stops, two inks live at a time. Between them the screen is
   // what makes the transition: neighbouring dots take different stops,
   // and at any distance the eye reads the ratio as one colour. Still no
   // blending — every dot is exactly one palette token.
-  float second = ${RAMP_SECOND_STOP.toFixed(3)};
-  vec3 lower = vTone < second ? uStopA : uStopB;
-  vec3 upper = vTone < second ? uStopB : uStopC;
-  float along = vTone < second
-    ? vTone / second
-    : (vTone - second) / (1.0 - second);
-  vec3 vInk = mixThreshold < along ? upper : lower;
+  float t = clamp(vTone, 0.0, 1.0);
+  int i = 0;
+  for (int k = 0; k < ${RAMP_STOPS - 1}; k++) {
+    if (t >= STOP_AT[k + 1]) i = k + 1;
+  }
+  i = min(i, ${RAMP_STOPS - 2});
+  int j = i + 1;
+  float along = (t - STOP_AT[i]) / max(STOP_AT[j] - STOP_AT[i], 1e-5);
+  vec3 vInk = mixThreshold < along ? uStops[j] : uStops[i];
 
   // Hard threshold, never a blend: every pixel lands on a palette token
   // and no in-between colour is ever produced.
@@ -194,6 +195,22 @@ export function createPrintGeometry(
   return geometry;
 }
 
+/**
+ * The ramp flattened for a `vec3[]` uniform. THREE.Color converts the
+ * sRGB hex to linear on construction, which is the space the shader
+ * works in before `colorspace_fragment` converts back.
+ */
+function rampUniform(): Float32Array {
+  const flat = new Float32Array(RAMP_STOPS * 3);
+  INK_RAMP.forEach((hex, i) => {
+    const color = new THREE.Color(hex);
+    flat[i * 3] = color.r;
+    flat[i * 3 + 1] = color.g;
+    flat[i * 3 + 2] = color.b;
+  });
+  return flat;
+}
+
 export function createPrintMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: VERTEX_SHADER,
@@ -201,9 +218,7 @@ export function createPrintMaterial(): THREE.ShaderMaterial {
     side: THREE.FrontSide,
     uniforms: {
       uUnder: { value: new THREE.Color(SURFACE_BORDER) },
-      uStopA: { value: new THREE.Color(YUZU_YELLOW) },
-      uStopB: { value: new THREE.Color(YUZU_ZEST) },
-      uStopC: { value: new THREE.Color(YUZU_ASH) },
+      uStops: { value: rampUniform() },
     },
   });
 }

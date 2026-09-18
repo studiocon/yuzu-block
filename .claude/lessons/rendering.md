@@ -69,6 +69,21 @@ count exact token colours in a `readPixels` histogram. Any assumption
 about the shape of a generated distribution is worth one measurement
 before it is worth an argument.
 
+## Gamma sets the bulk, segment width sets the extremes
+
+The ramp's gamma moves where the mass sits, but it is a poor lever for
+the ink at the very top: that stop sits above 6/7 of the ramp where
+there is little mass at any gamma, and flattening the gamma far enough
+to feed it drags the whole solid dark. Measured, tuning gamma alone:
+2.35 gave the last ink 1.9% of rendered pixels, 1.3 gave 3.8%, and the
+cost of 1.3 was the light family dropping from 68% to 48%.
+
+Widening that stop's segment moved it to 5.2% without touching anything
+below it. Reach for stop positions, not gamma, when one end is wrong.
+
+Current measured ink areas, eight stops, mock data: pale 13.9, yellow
+17.8, gold 15.4, amber 13.3, zest 11.9, rind 10.6, ember 12.0, ash 5.2.
+
 ## Tried and measured worse
 
 Snapping face coverage to the screen's sixteenths, so surviving dots

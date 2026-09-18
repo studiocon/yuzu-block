@@ -451,8 +451,9 @@ function buildScene(
     let min = Infinity;
     let max = -Infinity;
     for (const index of drift.indices) {
-      currentTones[index] = drift.toTone;
-      tones[index] = drift.toTone;
+      const next = Math.min(1, Math.max(0, currentTones[index] + drift.delta));
+      currentTones[index] = next;
+      tones[index] = next;
       if (index < min) min = index;
       if (index > max) max = index;
     }

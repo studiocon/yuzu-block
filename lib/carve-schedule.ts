@@ -121,19 +121,22 @@ export function nextColorDriftDelay(rng: () => number): number {
 export interface ToneDrift {
   columnKey: string;
   indices: number[];
-  toTone: number;
+  /** Added to each block's tone, then clamped into the ramp. */
+  delta: number;
 }
 
 /**
- * Picks one column and nudges it along the ink ramp, holding the mean
+ * Picks one column and slides it along the ink ramp, holding the mean
  * tone within `MEAN_TONE_GUARD` of the snapshot's. The guard is what
  * stops the drift walking the whole solid toward one end of the ramp
- * over an afternoon: once the mean is above the band only a step
- * downward can be returned, and vice versa.
+ * over an afternoon: once the mean is above the band only a downward
+ * step can be returned, and vice versa.
  *
- * Whole columns move together, so the surface keeps reading as columns
- * rather than as per-block noise. Returns null when no column can move
- * in either direction without breaching the guard.
+ * A delta rather than a target, because blocks within a column no
+ * longer share a tone — a target would flatten the column's own grain,
+ * which is the thing that stops a stack reading as one stripe. The
+ * accepted delta accounts for clamping at the ends of the ramp, so the
+ * guard holds even when part of a column is already against a stop.
  */
 export function pickToneDrift(
   columns: Map<string, number[]>,
@@ -157,14 +160,18 @@ export function pickToneDrift(
   for (let i = 0; i < keys.length; i++) {
     const key = keys[(start + i) % keys.length];
     const indices = columns.get(key)!;
-    const from = currentTones[indices[0]];
 
-    for (const step of stepUpFirst ? [TONE_STEP, -TONE_STEP] : [-TONE_STEP, TONE_STEP]) {
-      const toTone = Math.min(1, Math.max(0, from + step));
-      if (toTone === from) continue;
-      const newMean = (sum + (toTone - from) * indices.length) / total;
+    for (const delta of stepUpFirst ? [TONE_STEP, -TONE_STEP] : [-TONE_STEP, TONE_STEP]) {
+      let moved = 0;
+      for (const index of indices) {
+        const from = currentTones[index];
+        moved += Math.min(1, Math.max(0, from + delta)) - from;
+      }
+      if (moved === 0) continue;
+
+      const newMean = (sum + moved) / total;
       if (newMean <= upperBound && newMean >= lowerBound) {
-        return { columnKey: key, indices, toTone };
+        return { columnKey: key, indices, delta };
       }
     }
   }

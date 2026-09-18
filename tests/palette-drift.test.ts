@@ -7,7 +7,12 @@ import {
   INK_MUTED,
   INK_SECONDARY,
   SURFACE_BORDER,
+  YUZU_AMBER,
   YUZU_ASH,
+  YUZU_EMBER,
+  YUZU_GOLD,
+  YUZU_PALE,
+  YUZU_RIND,
   YUZU_WHITE,
   YUZU_YELLOW,
   YUZU_ZEST,
@@ -32,8 +37,13 @@ describe("palette drift", () => {
   const css = readFileSync(CSS_PATH, "utf-8");
 
   const pairs: Array<[string, string]> = [
+    ["yuzu-pale", YUZU_PALE],
     ["yuzu-yellow", YUZU_YELLOW],
+    ["yuzu-gold", YUZU_GOLD],
+    ["yuzu-amber", YUZU_AMBER],
     ["yuzu-zest", YUZU_ZEST],
+    ["yuzu-rind", YUZU_RIND],
+    ["yuzu-ember", YUZU_EMBER],
     ["yuzu-ash", YUZU_ASH],
     ["yuzu-white", YUZU_WHITE],
     ["ink", INK],
