@@ -90,6 +90,33 @@ against a measurement, never against the arithmetic alone.
 Current measured ink areas, mock data: pale 10.6, lemon 25.8, yellow
 27.5, gold 17.4, straw 5.5, linen 2.0, stone 7.1, ash 4.2.
 
+## Measure the family, and measure the spread
+
+Two ways a colour audit lies.
+
+**Reading one token when the eye reads a family.** The last ink was
+reported at 4.2% and called done; what actually looked grey was the
+last THREE inks together, at 13.3%. Group the inks the way a viewer
+groups them before counting.
+
+**Reporting a total when the complaint is about placement.** A total of
+5% spread evenly and 5% pooled in one corner are the same number and a
+completely different picture. Split the canvas into tiles and report
+the spread across them, not just the mean:
+
+| | muted total | per-tile min-max | sd |
+|---|---|---|---|
+| field 0.50 of a block's tone | 13.3% | — | — |
+| field 0.22 | 5.0% | 0 - 19.5% | 4.57 |
+| field 0.08 | 4.5% | 0.2 - 9.9% | 2.42 |
+
+Binomial noise alone puts a floor near 1.5 on that sd at this share and
+tile size, so 2.42 is close to as even as it can get.
+
+Note the trade: the smooth field across the footprint is what makes the
+colour sweep, and it is also what pools it. Evenness and sweep are the
+same dial turned opposite ways.
+
 ## Tried and measured worse
 
 Snapping face coverage to the screen's sixteenths, so surviving dots

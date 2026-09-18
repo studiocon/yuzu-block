@@ -48,8 +48,11 @@ describe("tonesFromBases", () => {
         0,
       ) / tones.length;
 
-    expect(share).toBeGreaterThan(0.02);
-    expect(share).toBeLessThan(0.1);
+    // Low bound: the muted FAMILY is what is held to a few per cent,
+    // and the last token is only a slice of it. Both ends still matter
+    // — it once rendered at exactly 0%.
+    expect(share).toBeGreaterThan(0.004);
+    expect(share).toBeLessThan(0.03);
   });
 
   it("preserves order", () => {

@@ -252,8 +252,68 @@ describe("tone placement", () => {
         0,
       ) / scene.blocks.length;
 
+    // The bound is low because the muted FAMILY is what is held to a
+    // few per cent; the last token is only a slice of that. Both ends
+    // still matter — it once rendered at exactly 0%.
+    expect(share).toBeGreaterThan(0.004);
+    expect(share).toBeLessThan(0.03);
+  });
+
+  /**
+   * Chance the screen draws one of the muted inks — the last three
+   * stops — for a block at this tone. Zero below the straw stop, the
+   * mix fraction across the straw/linen segment, and certain above it.
+   */
+  function mutedChance(tone: number): number {
+    const strawAt = RAMP_POSITIONS[RAMP_STOPS - 4];
+    const linenAt = RAMP_POSITIONS[RAMP_STOPS - 3];
+    if (tone < strawAt) return 0;
+    if (tone >= linenAt) return 1;
+    return (tone - strawAt) / (linenAt - strawAt);
+  }
+
+  it("keeps the muted end of the ramp to a few per cent", () => {
+    // Measured as a FAMILY, not as the last token alone. Reading only
+    // the last one once reported 4.2% while the three muted inks
+    // together were 13.3% of the surface, which is what actually reads
+    // as grey.
+    const scene = aggregateToBlocks(fullYearAggregate("blocks-muted-share"), {
+      expressive: true,
+    });
+    const share =
+      scene.blocks.reduce((n, b) => n + mutedChance(b.tone), 0) / scene.blocks.length;
     expect(share).toBeGreaterThan(0.02);
-    expect(share).toBeLessThan(0.09);
+    expect(share).toBeLessThan(0.08);
+  });
+
+  it("spreads the muted inks evenly over the footprint", () => {
+    // The field used to be the largest term in a block's tone, which
+    // pooled the muted inks into one region and read as the colour
+    // being lopsided. Per-region share should now sit close to the
+    // overall share everywhere.
+    const scene = aggregateToBlocks(fullYearAggregate("blocks-muted-spread"), {
+      expressive: true,
+    });
+    const extent = scene.halfExtent || 1;
+    const GRID = 6;
+    const regions = new Map<number, { n: number; muted: number }>();
+    for (const b of scene.blocks) {
+      const gx = Math.min(GRID - 1, Math.floor(((b.x + extent) / (2 * extent)) * GRID));
+      const gz = Math.min(GRID - 1, Math.floor(((b.z + extent) / (2 * extent)) * GRID));
+      const key = gz * GRID + gx;
+      const cell = regions.get(key) ?? { n: 0, muted: 0 };
+      cell.n++;
+      cell.muted += mutedChance(b.tone);
+      regions.set(key, cell);
+    }
+
+    const shares = [...regions.values()].filter((r) => r.n > 200).map((r) => r.muted / r.n);
+    const mean = shares.reduce((a, b) => a + b, 0) / shares.length;
+    const sd = Math.sqrt(shares.reduce((a, b) => a + (b - mean) ** 2, 0) / shares.length);
+
+    expect(shares.length).toBeGreaterThan(10);
+    expect(sd).toBeLessThan(0.03);
+    expect(Math.max(...shares)).toBeLessThan(0.14);
   });
 
   it("uses the whole ramp, not a corner of it", () => {
@@ -270,10 +330,11 @@ describe("tone placement", () => {
     }
   });
 
-  it("sweeps across the footprint rather than being pure noise", () => {
-    // Per-column noise is deliberately heavy, so neighbours often differ.
-    // What has to survive is the large-scale sweep: tone should still
-    // track the smooth field across the whole solid.
+  it("keeps only a faint drift across the footprint", () => {
+    // The field was once the largest term, which pooled the muted inks
+    // into one region and read as the colour being lopsided. It is now
+    // the smallest. The guard is two-sided: the field should still be
+    // wired in, and it should not be allowed to dominate again.
     const scene = aggregateToBlocks(fullYearAggregate("blocks-tone-field"), {
       expressive: true,
     });
@@ -301,12 +362,9 @@ describe("tone placement", () => {
     }
     const correlation = num / Math.sqrt(dx * dy);
 
-    // This is the sweep-against-noise balance, not a target: the noise
-    // share is deliberately heavy, so roughly half the variance being
-    // the field is the intended mix. The guard is that the field is not
-    // drowned out entirely.
     expect(byCell.size).toBeGreaterThan(300);
-    expect(correlation).toBeGreaterThan(0.45);
+    expect(correlation).toBeGreaterThan(0.01);
+    expect(correlation).toBeLessThan(0.3);
   });
 
   it("honours the measurement unless asked not to", () => {

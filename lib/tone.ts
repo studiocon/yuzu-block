@@ -33,7 +33,7 @@ export const RAMP_STOPS = 8;
  *
  * Ranking is still what makes any of this hold — see `tonesFromBases`.
  */
-export const RAMP_POSITIONS = [0, 0.2, 0.48, 0.72, 0.82, 0.85, 0.87, 1] as const;
+export const RAMP_POSITIONS = [0, 0.18, 0.44, 0.71, 0.935, 0.965, 0.975, 1] as const;
 
 // How a block's place on the ramp is composed. The field is the sweep
 // across the whole solid; the column term keeps a stack loosely
@@ -43,9 +43,14 @@ export const RAMP_POSITIONS = [0, 0.2, 0.48, 0.72, 0.82, 0.85, 0.87, 1] as const
 // vertical stripe up to twenty blocks tall — the most conspicuous thing
 // on the surface. The block term is now the larger of the two noise
 // shares, so a stack reads as related rather than as one line.
-const FIELD_SHARE = 0.5;
-const COLUMN_SHARE = 0.15;
-const BLOCK_SHARE = 0.35;
+// The field was the largest share, which pooled the muted inks into one
+// region of the solid and read as the colour being lopsided rather than
+// as a sweep. It is now the smallest: there is still an overall drift
+// across the footprint, but what decides any single block is mostly its
+// own noise, so the muted inks land evenly everywhere.
+const FIELD_SHARE = 0.08;
+const COLUMN_SHARE = 0.1;
+const BLOCK_SHARE = 0.82;
 
 /** Share the data signal takes when there is real data to honour. */
 const SIGNAL_SHARE = 0.4;
