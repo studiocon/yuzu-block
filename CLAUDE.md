@@ -27,5 +27,14 @@
 
 ## 作業フロー
 
+着手前に `.claude/lessons/` を読むこと。過去セッションで一度払った代償が
+書いてある（描画のちらつき、シェーダの罠、デプロイ状態の誤読、テストの作法）。
+セッションをまたいで役立つ学びはそこに追記する。書き方は
+`.claude/lessons/README.md` に従う。
+
 タスクを完了とみなす前に必ず `npm run check`
 （typecheck && lint && test && check:brand）を通すこと。
+
+デプロイ状態は `npm run deploy:status` で確認する。GitHub はチェックが
+存在しないコミットも `pending` と返すため、`state` だけを見ると「取りこぼし」と
+「ビルド中」を取り違える。

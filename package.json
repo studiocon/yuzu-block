@@ -15,7 +15,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check:brand": "node scripts/check-brand-words.mjs",
-    "check": "npm run typecheck && npm run lint && npm run test && npm run check:brand"
+    "check": "npm run typecheck && npm run lint && npm run test && npm run check:brand",
+    "deploy:status": "node scripts/deploy-status.mjs",
+    "deploy:wait": "node scripts/deploy-status.mjs -- --wait"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.26.0",
