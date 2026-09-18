@@ -1,12 +1,13 @@
 :root {
-  --yuzu-pale: #FBEB7A;
+  --yuzu-pale: #FCEE8A;
+  --yuzu-lemon: #F8E262;
   --yuzu-yellow: #F5D84A;
-  --yuzu-gold: #F0C232;
-  --yuzu-amber: #EDAE28;
-  --yuzu-zest: #E8A020;
-  --yuzu-rind: #D9791C;
-  --yuzu-ember: #C1541F;
+  --yuzu-gold: #EBCB4A;
+  --yuzu-straw: #DCC257;
+  --yuzu-linen: #CCBB6B;
+  --yuzu-stone: #BEB47D;
   --yuzu-ash: #B3AC8E;
+  --yuzu-zest: #E8A020;
   --yuzu-white: #FAFAF5;
   --ink: #1A1A2E;
   --ink-secondary: #4A4A6A;

@@ -3,7 +3,6 @@ import { INK_RAMP } from "@/lib/palette";
 import {
   RAMP_POSITIONS,
   RAMP_STOPS,
-  TONE_GAMMA,
   toneFromRank,
   tonesFromBases,
 } from "@/lib/tone";
@@ -69,9 +68,17 @@ describe("tonesFromBases", () => {
     expect(tonesFromBases([0.7])).toEqual([toneFromRank(0.5)]);
   });
 
-  it("weights the ramp toward its light end", () => {
-    expect(TONE_GAMMA).toBeGreaterThan(1);
-    expect(toneFromRank(0.5)).toBeLessThan(0.5);
+  it("leaves the shaping to the stop positions", () => {
+    // Tone is a flat rank; the ramp is shaped by where the stops sit,
+    // not by bending the rank underneath them.
+    expect(toneFromRank(0.5)).toBe(0.5);
+    expect(toneFromRank(0)).toBe(0);
+    expect(toneFromRank(1)).toBe(1);
+  });
+
+  it("gives the light stops most of the area", () => {
+    const lightEnd = RAMP_POSITIONS[3];
+    expect(lightEnd).toBeGreaterThan(0.65);
   });
 });
 
@@ -85,10 +92,10 @@ describe("ramp positions", () => {
     }
   });
 
-  it("gives the last ink a wider segment than the mean", () => {
-    // Which is the whole reason the positions are not even.
+  it("is deliberately uneven", () => {
+    // Even spacing would hand every ink the same area. The light stops
+    // are meant to hold most of the surface, so the gaps differ widely.
     const widths = RAMP_POSITIONS.slice(1).map((p, i) => p - RAMP_POSITIONS[i]);
-    const mean = widths.reduce((n, w) => n + w, 0) / widths.length;
-    expect(widths[widths.length - 1]).toBeGreaterThan(mean);
+    expect(Math.max(...widths) / Math.min(...widths)).toBeGreaterThan(3);
   });
 });

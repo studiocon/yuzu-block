@@ -16,31 +16,24 @@ import { hashString } from "./seed";
 export const RAMP_STOPS = 8;
 
 /**
- * Where each stop sits on [0,1]. Not evenly spaced: the last segment is
- * wider than the rest so the final ink gets enough area to register at
- * all, without having to flatten the ramp's gamma to reach it.
+ * Where each stop sits on [0,1] — which, since tone is a flat rank, is
+ * also how the solid's area is divided between them.
  *
- * The gamma is a poor lever for that ink on its own — at eight even
- * stops it sits above 6/7 of the ramp, where there is little mass
- * whatever the gamma, and dropping the gamma far enough to feed it
- * drags the whole solid dark. Segment width moves it without touching
- * anything below.
- */
-export const RAMP_POSITIONS = [0, 0.14, 0.28, 0.42, 0.55, 0.68, 0.81, 1] as const;
-
-/**
- * Rank is raised to this power, which weights the ramp toward its light
- * end and keeps the last stop scarce. Tuned against measured ink areas,
- * not derived: see .claude/lessons/rendering.md.
+ * The gap before a stop and the gap after it are the two places its ink
+ * can be drawn, so a stop's share is about half of the two gaps around
+ * it. These leave the four light stops around three quarters of the
+ * surface and the last one a few per cent.
  *
- * Flatness is why `toneFromRank` takes a rank rather than the raw field.
- * Applying this directly to field-plus-noise once put the last ink at
- * exactly 0% of rendered pixels: a smooth field summed with uniform
- * noise piles up around the middle, nothing reached the top of the
- * ramp, and the share maths — which assumed a flat input — was
- * describing a distribution that did not exist.
+ * This replaced a gamma applied to the rank. A gamma sets where the
+ * bulk sits but is a poor lever at either end: reaching the last ink
+ * meant flattening it far enough to drag the whole solid dark, and
+ * pushing the bulk toward the light end piled 40% of the surface onto
+ * the single palest ink. A position moves one stop without touching the
+ * others, so there is one knob instead of two fighting each other.
+ *
+ * Ranking is still what makes any of this hold — see `tonesFromBases`.
  */
-export const TONE_GAMMA = 1.3;
+export const RAMP_POSITIONS = [0, 0.2, 0.48, 0.72, 0.82, 0.85, 0.87, 1] as const;
 
 // How a block's place on the ramp is composed. The field is the sweep
 // across the whole solid; the column term keeps a stack loosely
@@ -105,9 +98,13 @@ export function toneBase({ x, y, z, year, ring, cellIndex, signal }: ToneInput):
   return signal * SIGNAL_SHARE + base * (1 - SIGNAL_SHARE);
 }
 
-/** Ramp position for a block at `rank` in [0,1] of the ordering. */
+/**
+ * Ramp position for a block at `rank` in [0,1] of the ordering. The
+ * identity: all of the shaping lives in RAMP_POSITIONS, so a block's
+ * tone is just its place in the order.
+ */
 export function toneFromRank(rank: number): number {
-  return Math.pow(Math.min(1, Math.max(0, rank)), TONE_GAMMA);
+  return Math.min(1, Math.max(0, rank));
 }
 
 /**
