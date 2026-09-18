@@ -214,3 +214,71 @@ describe("aggregateToBlocks", () => {
     }
   });
 });
+
+describe("colour placement", () => {
+  /** Zest share of the columns of one ring. */
+  function ringZestShare(blocks: { x: number; z: number; color: string }[], ring: number): number {
+    const columns = new Map<string, string>();
+    for (const b of blocks) {
+      if (Math.max(Math.abs(b.x), Math.abs(b.z)) !== ring) continue;
+      columns.set(`${b.x},${b.z}`, b.color);
+    }
+    if (columns.size === 0) return NaN;
+    let zest = 0;
+    for (const c of columns.values()) if (c === "zest") zest++;
+    return zest / columns.size;
+  }
+
+  it("mixes both tokens within a ring instead of colouring it whole", () => {
+    // The old rule was a per-ring verdict, so every populated ring came
+    // out entirely one token and the year read as solid bands.
+    const scene = aggregateToBlocks(fullYearAggregate("blocks-colour-mix"));
+    const populated = [...new Set(scene.blocks.map((b) => Math.max(Math.abs(b.x), Math.abs(b.z))))]
+      .filter((r) => r >= 4)
+      .sort((a, b) => a - b);
+
+    const mixed = populated.filter((r) => {
+      const share = ringZestShare(scene.blocks, r);
+      return share > 0 && share < 1;
+    });
+
+    expect(populated.length).toBeGreaterThan(8);
+    // Rings big enough to hold a mix essentially always do.
+    expect(mixed.length / populated.length).toBeGreaterThan(0.9);
+  });
+
+  it("never fills a sizeable ring entirely with one token", () => {
+    const scene = aggregateToBlocks(fullYearAggregate("blocks-colour-whole"));
+    for (let r = 10; r <= 40; r++) {
+      const share = ringZestShare(scene.blocks, r);
+      if (Number.isNaN(share)) continue;
+      expect(share).toBeGreaterThan(0);
+      expect(share).toBeLessThan(1);
+    }
+  });
+
+  it("gives wordier weeks a denser share of the second token", () => {
+    const agg = fullYearAggregate("blocks-colour-signal");
+    const scene = aggregateToBlocks(agg);
+
+    const paired: Array<{ wpr: number; share: number }> = [];
+    for (const bucket of agg.buckets) {
+      if (!bucket.sufficient || !bucket.recordCount || !bucket.wordCount) continue;
+      if (bucket.index < 6) continue; // tiny rings are too coarse to rank
+      const share = ringZestShare(scene.blocks, bucket.index);
+      if (Number.isNaN(share)) continue;
+      paired.push({ wpr: bucket.wordCount / bucket.recordCount, share });
+    }
+
+    expect(paired.length).toBeGreaterThan(10);
+    const sorted = [...paired].sort((a, b) => a.wpr - b.wpr);
+    const half = Math.floor(sorted.length / 2);
+    const mean = (xs: typeof sorted) => xs.reduce((n, p) => n + p.share, 0) / xs.length;
+    expect(mean(sorted.slice(sorted.length - half))).toBeGreaterThan(mean(sorted.slice(0, half)));
+  });
+
+  it("keeps the colour layout stable for a given year", () => {
+    const agg = fullYearAggregate("blocks-colour-stable");
+    expect(aggregateToBlocks(agg).blocks).toEqual(aggregateToBlocks(agg).blocks);
+  });
+});
