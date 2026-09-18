@@ -253,3 +253,22 @@ export function dampedExtents(
     halfHeight: live.halfHeight + (worst.halfHeight - live.halfHeight) * damping,
   };
 }
+
+/**
+ * Camera elevation at a moment in the slow vertical drift, in radians.
+ *
+ * Yaw alone reads flat on an axonometric: the solid turns but the face
+ * angles never change, so nothing tells the eye it has depth. Easing the
+ * elevation at the same time swings the top faces open and shut against
+ * the sides, which is what makes it read as a solid rather than as a
+ * turning image. At t = 0 the drift is at its centre, so it can start
+ * from the resting camera with no jump.
+ */
+export function tiltElevation(
+  seconds: number,
+  centre: number,
+  swing: number,
+  periodSeconds: number,
+): number {
+  return centre + swing * Math.sin((2 * Math.PI * seconds) / periodSeconds);
+}

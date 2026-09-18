@@ -4,6 +4,7 @@ import {
   coverFrustum,
   extentsAtOrientation,
   projectedExtents,
+  tiltElevation,
 } from "@/lib/ortho-fit";
 import type { ExtentOptions } from "@/lib/ortho-fit";
 import { mulberry32 } from "@/lib/seed";
@@ -185,6 +186,54 @@ describe("coverFrustum", () => {
     const bare = coverFrustum(extents, 1600, 900, 1);
     const pushed = coverFrustum(extents, 1600, 900, 1.15);
     expect(bare.halfW / pushed.halfW).toBeCloseTo(1.15, 12);
+  });
+});
+
+describe("tiltElevation", () => {
+  const CENTRE = Math.PI / 4;
+  const SWING = 0.2;
+  const PERIOD = 64;
+
+  it("starts at the centre, so the drift can begin from the resting camera", () => {
+    expect(tiltElevation(0, CENTRE, SWING, PERIOD)).toBeCloseTo(CENTRE, 12);
+  });
+
+  it("stays within the swing", () => {
+    for (let t = 0; t < PERIOD * 3; t += 0.37) {
+      const e = tiltElevation(t, CENTRE, SWING, PERIOD);
+      expect(e).toBeGreaterThanOrEqual(CENTRE - SWING - 1e-12);
+      expect(e).toBeLessThanOrEqual(CENTRE + SWING + 1e-12);
+    }
+  });
+
+  it("reaches both extremes within one period", () => {
+    expect(tiltElevation(PERIOD / 4, CENTRE, SWING, PERIOD)).toBeCloseTo(CENTRE + SWING, 12);
+    expect(tiltElevation((PERIOD * 3) / 4, CENTRE, SWING, PERIOD)).toBeCloseTo(
+      CENTRE - SWING,
+      12,
+    );
+  });
+
+  it("repeats every period", () => {
+    for (const t of [0, 3.5, 17, 40.25]) {
+      expect(tiltElevation(t + PERIOD, CENTRE, SWING, PERIOD)).toBeCloseTo(
+        tiltElevation(t, CENTRE, SWING, PERIOD),
+        12,
+      );
+    }
+  });
+
+  it("moves slowly enough that no frame jumps", () => {
+    // At 60fps the per-frame step has to stay well under a degree, or
+    // the camera snaps rather than drifts.
+    let worst = 0;
+    for (let t = 0; t < PERIOD; t += 1 / 60) {
+      const step = Math.abs(
+        tiltElevation(t + 1 / 60, CENTRE, SWING, PERIOD) - tiltElevation(t, CENTRE, SWING, PERIOD),
+      );
+      worst = Math.max(worst, step);
+    }
+    expect(worst).toBeLessThan(0.001);
   });
 });
 

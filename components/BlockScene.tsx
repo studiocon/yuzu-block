@@ -22,6 +22,7 @@ import {
   dampedExtents,
   extentsAtOrientation,
   projectedExtents,
+  tiltElevation,
 } from "@/lib/ortho-fit";
 import type { Block, BlockColor, SceneSpec } from "@/lib/types";
 import { createGround } from "./groundMaterial";
@@ -78,9 +79,34 @@ const MAX_POLAR_ANGLE = Math.PI / 2 - MIN_ELEVATION;
 const YAW_SAMPLES = 72;
 const ELEVATION_SAMPLES = 5;
 
+// The camera also drifts up and down, not just around. Centred on the
+// resting elevation so the drift starts from it without a jump, and kept
+// inside the orbit clamps so it never fights them. One pass takes just
+// over a minute, slower than nothing and slower than the turn.
+const TILT_SWING = THREE.MathUtils.degToRad(11);
+const TILT_PERIOD_SECONDS = 64;
+
 // Blocks are boxes of BLOCK_SCALE centred on their cell, so the solid
 // reaches half a block past the outermost cell centre.
 const BLOCK_OVERHANG = BLOCK_SCALE / 2;
+
+const tiltOffset = new THREE.Vector3();
+const tiltSpherical = new THREE.Spherical();
+
+/** Rotates the camera about its target by an elevation delta. */
+function nudgeElevation(
+  camera: THREE.Camera,
+  target: THREE.Vector3,
+  deltaElevation: number,
+): void {
+  if (deltaElevation === 0) return;
+  tiltOffset.copy(camera.position).sub(target);
+  tiltSpherical.setFromVector3(tiltOffset);
+  // Polar angle is measured from +y, so it moves against elevation.
+  tiltSpherical.phi -= deltaElevation;
+  tiltOffset.setFromSpherical(tiltSpherical);
+  camera.position.copy(target).add(tiltOffset);
+}
 
 function blockListSeed(blocks: Block[]): string {
   return blocks.map((b) => `${b.x}.${b.y}.${b.z}.${b.color}`).join("|");
@@ -140,6 +166,16 @@ export default function BlockScene({ scene }: BlockSceneProps) {
 
     // The frustum is re-fitted to the live orbit angles, so the viewport
     // size is held here rather than passed down from each call site.
+    // autoRotate pauses itself while the visitor drags; the tilt drift
+    // matches that so a deliberate vertical drag is not pulled against.
+    let dragging = false;
+    controls.addEventListener("start", () => {
+      dragging = true;
+    });
+    controls.addEventListener("end", () => {
+      dragging = false;
+    });
+
     let viewWidth = 1;
     let viewHeight = 1;
     function refitFrustum() {
@@ -194,7 +230,18 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       renderer.render(threeScene, camera);
     } else {
       const startedAt = performance.now();
+      let lastTilt = DEFAULT_ELEVATION;
       const animate = () => {
+        const elapsed = (performance.now() - startedAt) / 1000;
+        const tilt = tiltElevation(elapsed, DEFAULT_ELEVATION, TILT_SWING, TILT_PERIOD_SECONDS);
+        // Applied as a delta to wherever the camera currently is, so a
+        // visitor's own dragging is added to rather than overwritten.
+        // OrbitControls re-derives its spherical from the camera position
+        // on every update and clamps phi, so this is picked up and
+        // bounded without reaching into its internals.
+        if (!dragging) nudgeElevation(camera, controls.target, tilt - lastTilt);
+        lastTilt = tilt;
+
         controls.update();
         refitFrustum();
         three.setGroundTime((performance.now() - startedAt) / 1000);
