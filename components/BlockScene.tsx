@@ -13,7 +13,7 @@ import {
   selectInitiallyHidden,
 } from "@/lib/carve-schedule";
 import { buildNeighbourMasks } from "@/lib/neighbour-mask";
-import { columnsOf, orthoFrustum, projectedExtents } from "@/lib/ortho-fit";
+import { columnsOf, orthoFrustum, projectedExtents, safeBandHeight } from "@/lib/ortho-fit";
 import type { Block, BlockColor, SceneSpec } from "@/lib/types";
 import {
   createPrintGeometry,
@@ -35,19 +35,52 @@ const COLOR_HEX: Record<BlockColor, string> = {
   zest: YUZU_ZEST,
 };
 
-// Safe-area insets (px) reserved for page chrome: the header sits above
-// TOP_INSET, and the footer (plus, on mobile, the lead) sits below
-// (viewport height - BOTTOM_INSET). The sculpture is fit and framed to
-// stay clear of both bands.
+// Safe-area insets (px) reserved for page chrome: the sculpture is fit
+// and framed into the band between them.
+//
+// The chrome is measured rather than assumed. Its height depends on the
+// viewport width, on how the copy wraps and on which font has loaded, so
+// a constant is only ever right for the viewport it was read off — the
+// figures below are what the measurement replaced, and they understated
+// the lead by 43px at 401x390, which put the solid on top of the text.
+// They survive only as the fallback for a page rendered without chrome.
 //
 // On desktop the lead sits bottom-left while the sculpture is centred, so
 // the bottom inset only has to clear the footer bar; reserving the lead's
 // full height there would shrink the sculpture across the whole width to
 // avoid a corner it barely reaches.
-const TOP_INSET = 64;
-const BOTTOM_INSET_DESKTOP = 104;
-const BOTTOM_INSET_MOBILE = 208;
+const FALLBACK_TOP_INSET = 64;
+const FALLBACK_BOTTOM_INSET_DESKTOP = 104;
+const FALLBACK_BOTTOM_INSET_MOBILE = 208;
 const MOBILE_BREAKPOINT = 768;
+
+/** Clearance kept between the solid and the nearest piece of chrome. */
+const CHROME_MARGIN = 8;
+
+interface Insets {
+  top: number;
+  bottom: number;
+}
+
+function chromeInsets(width: number, height: number): Insets {
+  const header = document.querySelector(".chrome-header");
+  const footer = document.querySelector(".chrome-footer");
+  const lead = document.querySelector(".chrome-lead");
+
+  const top = header
+    ? header.getBoundingClientRect().bottom + CHROME_MARGIN
+    : FALLBACK_TOP_INSET;
+
+  const below: Element[] = footer ? [footer] : [];
+  if (lead && width < MOBILE_BREAKPOINT) below.push(lead);
+
+  if (below.length === 0) {
+    return { top, bottom: bottomInsetFor(width) };
+  }
+
+  const highestEdge = Math.min(...below.map((el) => el.getBoundingClientRect().top));
+  return { top, bottom: height - highestEdge + CHROME_MARGIN };
+}
 
 // Orbit range, as elevation above the horizon. The orthographic fit is
 // tight rather than bounding-sphere loose, so it has to be computed over
@@ -75,7 +108,9 @@ const FIT_MARGIN = 1.02;
 const BLOCK_OVERHANG = BLOCK_SCALE / 2;
 
 function bottomInsetFor(width: number): number {
-  return width < MOBILE_BREAKPOINT ? BOTTOM_INSET_MOBILE : BOTTOM_INSET_DESKTOP;
+  return width < MOBILE_BREAKPOINT
+    ? FALLBACK_BOTTOM_INSET_MOBILE
+    : FALLBACK_BOTTOM_INSET_DESKTOP;
 }
 
 function blockListSeed(blocks: Block[]): string {
@@ -142,7 +177,9 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       renderer.setPixelRatio(pixelRatio());
       renderer.setSize(width, height);
       three.setPixelRatio(renderer.getPixelRatio());
-      updateCameraForViewport(width, height);
+
+      const insets = chromeInsets(width, height);
+      updateCameraForViewport(width, height, insets);
 
       // Shift the rendered frame so its vertical center lands on the safe
       // area's center rather than the full viewport's center. A positive
@@ -150,8 +187,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       // three's OrthographicCamera.updateProjectionMatrix, which computes
       // `top -= scaleH * view.offsetY` — the same sign convention the
       // perspective camera uses, so this survived the switch unchanged).
-      const bottomInset = bottomInsetFor(width);
-      const offsetY = (bottomInset - TOP_INSET) / 2;
+      const offsetY = (insets.bottom - insets.top) / 2;
       camera.setViewOffset(width, height, 0, offsetY, width, height);
       camera.updateProjectionMatrix();
 
@@ -160,6 +196,15 @@ export default function BlockScene({ scene }: BlockSceneProps) {
 
     resize();
     window.addEventListener("resize", resize);
+
+    // The lead's height moves when the webfont swaps in, and the chrome is
+    // measured, so the first reading can be stale. Re-measure once fonts
+    // settle; the flag keeps a late resolution from touching a torn-down
+    // renderer.
+    let mounted = true;
+    document.fonts?.ready.then(() => {
+      if (mounted) resize();
+    });
 
     // With motion, every frame differs (orbit, reveals, color drift), so a
     // continuous loop is what the scene needs. Without it nothing changes
@@ -208,6 +253,7 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     }
 
     return () => {
+      mounted = false;
       cancelAnimationFrame(rafId);
       window.removeEventListener("resize", resize);
       controls.removeEventListener("change", renderOnDemand);
@@ -230,7 +276,7 @@ interface BuiltScene {
   threeScene: THREE.Scene;
   camera: THREE.OrthographicCamera;
   lookAtHeight: number;
-  updateCameraForViewport: (width: number, height: number) => void;
+  updateCameraForViewport: (width: number, height: number, insets: Insets) => void;
   dispose: () => void;
   setPixelRatio: (pixelRatio: number) => void;
   hasHidden: () => boolean;
@@ -293,8 +339,8 @@ function buildScene(
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
 
-  function updateCameraForViewport(width: number, height: number) {
-    const bandHeight = Math.max(200, height - TOP_INSET - bottomInsetFor(width));
+  function updateCameraForViewport(width: number, height: number, insets: Insets) {
+    const bandHeight = safeBandHeight(height, insets.top, insets.bottom);
     const { halfW, halfH } = orthoFrustum(extents, width, height, bandHeight, FIT_MARGIN);
 
     camera.left = -halfW;

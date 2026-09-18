@@ -171,6 +171,29 @@ function sampleRange(range: [number, number], count: number, extra: number): num
 }
 
 /**
+ * Last-resort share of the viewport the sculpture keeps when the chrome
+ * cannot be seated at all. See `safeBandHeight`.
+ */
+export const MIN_BAND_FRACTION = 0.12;
+
+/**
+ * Height of the band between the page's header and footer, which is the
+ * vertical space the sculpture is fitted into.
+ *
+ * On a viewport too short to seat the chrome, the subtraction runs to zero
+ * or below, so the band is floored at a fraction of the viewport height.
+ * The floor does let the sculpture reach into the chrome — but only where
+ * there was no room for both to begin with, and the alternatives are a
+ * frustum that collapses to a point or one that diverges. A fixed pixel
+ * floor is what this replaced: it claimed space the viewport did not have
+ * at any height below `topInset + bottomInset + floor`, which put the
+ * sculpture on top of the lead copy rather than above it.
+ */
+export function safeBandHeight(height: number, topInset: number, bottomInset: number): number {
+  return Math.max(height * MIN_BAND_FRACTION, height - topInset - bottomInset);
+}
+
+/**
  * Orthographic half-extents for a viewport, honouring the same two
  * constraints the perspective fit used: the sculpture may use the full
  * width, but vertically only the safe band between header and footer.

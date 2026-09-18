@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { columnsOf, orthoFrustum, projectedExtents } from "@/lib/ortho-fit";
+import {
+  MIN_BAND_FRACTION,
+  columnsOf,
+  orthoFrustum,
+  projectedExtents,
+  safeBandHeight,
+} from "@/lib/ortho-fit";
 import type { ExtentOptions } from "@/lib/ortho-fit";
 import { mulberry32 } from "@/lib/seed";
 import type { Block } from "@/lib/types";
@@ -61,6 +67,11 @@ describe("projectedExtents", () => {
     const rng = mulberry32(99);
     const [loE, hiE] = OPTIONS.elevationRange;
 
+    // Largest amount by which any corner escapes the frustum, over every
+    // sampled orientation. Must stay at or below zero.
+    let worstU = -Infinity;
+    let worstV = -Infinity;
+
     for (let trial = 0; trial < 40; trial++) {
       const t = rng() * 2 * Math.PI;
       const e = loE + rng() * (hiE - loE);
@@ -70,6 +81,9 @@ describe("projectedExtents", () => {
       const sinE = Math.sin(e);
       const targetV = extents.targetHeight * cosE;
 
+      // Accumulate and assert once per orientation. One expect() per
+      // corner would be a quarter of a million calls, which is slow
+      // enough to trip vitest's timeout on a loaded machine.
       for (const b of blocks) {
         for (const dx of [-OVERHANG, OVERHANG]) {
           for (const dz of [-OVERHANG, OVERHANG]) {
@@ -78,13 +92,16 @@ describe("projectedExtents", () => {
               const z = b.z + dz;
               const u = x * cosT - z * sinT;
               const v = y * cosE - (x * sinT + z * cosT) * sinE;
-              expect(Math.abs(u)).toBeLessThanOrEqual(extents.halfWidth + 1e-9);
-              expect(Math.abs(v - targetV)).toBeLessThanOrEqual(extents.halfHeight + 1e-9);
+              worstU = Math.max(worstU, Math.abs(u) - extents.halfWidth);
+              worstV = Math.max(worstV, Math.abs(v - targetV) - extents.halfHeight);
             }
           }
         }
       }
     }
+
+    expect(worstU).toBeLessThanOrEqual(1e-9);
+    expect(worstV).toBeLessThanOrEqual(1e-9);
   });
 
   it("returns a finite, non-degenerate frustum for an empty sculpture", () => {
@@ -153,3 +170,45 @@ function randomBlocks(): Block[] {
   }
   return blocks;
 }
+
+describe("safeBandHeight", () => {
+  const TOP = 64;
+  const BOTTOM_DESKTOP = 104;
+  const BOTTOM_MOBILE = 208;
+
+  it("reserves exactly the chrome on viewports that can seat it", () => {
+    expect(safeBandHeight(900, TOP, BOTTOM_DESKTOP)).toBe(732);
+    expect(safeBandHeight(812, TOP, BOTTOM_MOBILE)).toBe(540);
+  });
+
+  it("keeps the band inside the chrome on a short viewport", () => {
+    // The case that put the sculpture on top of the lead copy: 390px tall
+    // leaves 118px between header and footer, and the old fixed 200px
+    // floor claimed 82px that were not there.
+    expect(safeBandHeight(390, TOP, BOTTOM_MOBILE)).toBe(118);
+  });
+
+  it("falls back to a share of the viewport when the chrome cannot fit", () => {
+    // 250 - 64 - 208 is negative, so there is no honest answer; the floor
+    // only has to stay positive and bounded.
+    expect(safeBandHeight(250, TOP, BOTTOM_MOBILE)).toBeCloseTo(250 * MIN_BAND_FRACTION, 10);
+  });
+
+  it("stays positive and never exceeds the viewport", () => {
+    for (const height of [120, 250, 300, 390, 500, 768, 900, 1440]) {
+      for (const bottom of [BOTTOM_DESKTOP, BOTTOM_MOBILE]) {
+        const band = safeBandHeight(height, TOP, bottom);
+        expect(band).toBeGreaterThan(0);
+        expect(band).toBeLessThanOrEqual(height);
+      }
+    }
+  });
+
+  it("never claims space the chrome already holds", () => {
+    // Whenever the honest band is the larger of the two, it is the one
+    // used — the floor can only ever apply below that crossover.
+    for (const height of [400, 500, 900]) {
+      expect(safeBandHeight(height, TOP, BOTTOM_MOBILE)).toBe(height - TOP - BOTTOM_MOBILE);
+    }
+  });
+});
