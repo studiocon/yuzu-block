@@ -92,27 +92,23 @@ void main() {
   float d = chebyshev + 0.5;
   float texel = fwidth(d);
 
-  // Weekly rings. Their pitch is one cell, which at most framings is a
-  // handful of pixels, so they fade out as a pixel starts to span a
-  // useful fraction of a cell — past that they are moire, not rings.
-  float weekEdge = abs(d - floor(d + 0.5));
-  float week = 1.0 - smoothstep(0.0, texel * uLinePx, weekEdge);
-  week *= (1.0 - smoothstep(0.45, 0.9, texel)) * 0.55;
-
-  // Quarter rings carry the structure at any framing, so they are drawn
-  // heavier and are not faded.
+  // Only quarter rings. Weekly ones have a pitch of one cell, which is a
+  // handful of pixels at any framing the page actually uses: they sit on
+  // the resolution limit, so every frame of the turn re-samples them
+  // somewhere different and the whole plate scintillates. A ring you
+  // cannot resolve is moire, not information.
   float q = d / ${QUARTER_RINGS}.0;
   float quarterEdge = abs(q - floor(q + 0.5)) * ${QUARTER_RINGS}.0;
-  float quarter = 1.0 - smoothstep(0.0, texel * uLinePx * 2.2, quarterEdge);
-
-  float ring = max(week, quarter);
+  float ring = 1.0 - smoothstep(0.0, texel * uLinePx * 2.2, quarterEdge);
 
   // Past the nominal grid there is no stock to draw.
   ring *= 1.0 - step(${RING_LIMIT.toFixed(1)}, chebyshev);
 
   // --- paper screen -------------------------------------------------
-  // Coverage drifts in the plate's own space; the screen it is resolved
-  // against is fixed to the viewport, like a halftone on the page.
+  // Coverage drifts in the plate's own space. The screen stays fixed to
+  // the viewport here, unlike the solid's: the plate does not turn under
+  // it the way the faces do, it only slides, so there is far less for
+  // the dots to crawl against.
   float field = sin(vGround.x * 0.035 + uTime * 0.08) * sin(vGround.y * 0.029 - uTime * 0.061);
   float coverage = 0.09 + 0.05 * field;
 

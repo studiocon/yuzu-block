@@ -15,7 +15,6 @@ import {
   registrationHoldMs,
   selectInitiallyHidden,
 } from "@/lib/carve-schedule";
-import { buildNeighbourMasks } from "@/lib/neighbour-mask";
 import {
   columnsOf,
   coverFrustum,
@@ -26,11 +25,7 @@ import {
 } from "@/lib/ortho-fit";
 import type { Block, BlockColor, SceneSpec } from "@/lib/types";
 import { createGround } from "./groundMaterial";
-import {
-  createPrintGeometry,
-  createPrintMaterial,
-  updatePrintMaterialScale,
-} from "./printMaterial";
+import { createPrintGeometry, createPrintMaterial } from "./printMaterial";
 
 // Cells are unit cubes, so adjacent blocks meet exactly and the solid
 // reads as one mass. The per-cell articulation is carried by the shader's
@@ -334,8 +329,8 @@ function buildScene(
   const threeScene = new THREE.Scene();
   const blocks = scene.blocks;
 
-  const geometry = createPrintGeometry(BLOCK_SCALE, buildNeighbourMasks(blocks));
-  const material = createPrintMaterial(pixelRatio);
+  const geometry = createPrintGeometry(BLOCK_SCALE);
+  const material = createPrintMaterial();
 
   // The plate the sculpture sits on: nominal ring grid, paper screen and
   // the off-register slip. Added first so it is behind everything.
@@ -483,7 +478,6 @@ function buildScene(
   }
 
   function setPixelRatio(next: number) {
-    updatePrintMaterialScale(material, next);
     ground.setPixelRatio(next);
   }
 
