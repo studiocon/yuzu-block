@@ -8,8 +8,11 @@ import { hashString, mulberry32 } from "@/lib/seed";
 import {
   groupColumns,
   nextColorDriftDelay,
+  nextRegistrationDelay,
+  nextRegistrationOffset,
   nextRevealDelay,
   pickColorFlip,
+  registrationHoldMs,
   selectInitiallyHidden,
 } from "@/lib/carve-schedule";
 import { buildNeighbourMasks } from "@/lib/neighbour-mask";
@@ -21,6 +24,7 @@ import {
   projectedExtents,
 } from "@/lib/ortho-fit";
 import type { Block, BlockColor, SceneSpec } from "@/lib/types";
+import { createGround } from "./groundMaterial";
 import {
   createPrintGeometry,
   createPrintMaterial,
@@ -189,9 +193,11 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       controls.addEventListener("change", renderOnDemand);
       renderer.render(threeScene, camera);
     } else {
+      const startedAt = performance.now();
       const animate = () => {
         controls.update();
         refitFrustum();
+        three.setGroundTime((performance.now() - startedAt) / 1000);
         renderer.render(threeScene, camera);
         rafId = requestAnimationFrame(animate);
       };
@@ -204,6 +210,8 @@ export default function BlockScene({ scene }: BlockSceneProps) {
     // prefers-reduced-motion, where the full snapshot renders immediately.
     let revealTimer: ReturnType<typeof setTimeout> | undefined;
     let driftTimer: ReturnType<typeof setTimeout> | undefined;
+    let registrationTimer: ReturnType<typeof setTimeout> | undefined;
+    let registrationHold: ReturnType<typeof setTimeout> | undefined;
 
     if (!prefersReducedMotion) {
       const scheduleReveal = () => {
@@ -221,6 +229,16 @@ export default function BlockScene({ scene }: BlockSceneProps) {
         }, nextColorDriftDelay(three.driftRng));
       };
       scheduleDrift();
+
+      const scheduleRegistration = () => {
+        registrationTimer = setTimeout(() => {
+          const { x, z } = nextRegistrationOffset(three.driftRng);
+          three.setRegistration(x, z);
+          registrationHold = setTimeout(() => three.setRegistration(0, 0), registrationHoldMs);
+          scheduleRegistration();
+        }, nextRegistrationDelay(three.driftRng));
+      };
+      scheduleRegistration();
     }
 
     return () => {
@@ -230,6 +248,8 @@ export default function BlockScene({ scene }: BlockSceneProps) {
       controls.removeEventListener("change", renderOnDemand);
       if (revealTimer !== undefined) clearTimeout(revealTimer);
       if (driftTimer !== undefined) clearTimeout(driftTimer);
+      if (registrationTimer !== undefined) clearTimeout(registrationTimer);
+      if (registrationHold !== undefined) clearTimeout(registrationHold);
       controls.dispose();
       three.dispose();
       renderer.dispose();
@@ -250,6 +270,8 @@ interface BuiltScene {
   updateFrustum: (width: number, height: number, yaw: number, elevation: number) => void;
   dispose: () => void;
   setPixelRatio: (pixelRatio: number) => void;
+  setGroundTime: (seconds: number) => void;
+  setRegistration: (x: number, z: number) => void;
   hasHidden: () => boolean;
   revealOne: () => void;
   driftColor: () => void;
@@ -267,6 +289,11 @@ function buildScene(
 
   const geometry = createPrintGeometry(BLOCK_SCALE, buildNeighbourMasks(blocks));
   const material = createPrintMaterial(pixelRatio);
+
+  // The plate the sculpture sits on: nominal ring grid, paper screen and
+  // the off-register slip. Added first so it is behind everything.
+  const ground = createGround(pixelRatio);
+  threeScene.add(ground.mesh);
   const mesh = blocks.length > 0 ? new THREE.InstancedMesh(geometry, material, blocks.length) : null;
 
   const seed = blockListSeed(blocks);
@@ -405,10 +432,12 @@ function buildScene(
   function dispose() {
     geometry.dispose();
     material.dispose();
+    ground.dispose();
   }
 
   function setPixelRatio(next: number) {
     updatePrintMaterialScale(material, next);
+    ground.setPixelRatio(next);
   }
 
   return {
@@ -418,6 +447,8 @@ function buildScene(
     updateFrustum,
     dispose,
     setPixelRatio,
+    setGroundTime: ground.setTime,
+    setRegistration: ground.setRegistration,
     hasHidden,
     revealOne,
     driftColor,

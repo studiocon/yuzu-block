@@ -3,8 +3,11 @@ import { mulberry32 } from "@/lib/seed";
 import {
   groupColumns,
   nextColorDriftDelay,
+  nextRegistrationDelay,
+  nextRegistrationOffset,
   nextRevealDelay,
   pickColorFlip,
+  registrationHoldMs,
   selectInitiallyHidden,
 } from "@/lib/carve-schedule";
 import type { Block, BlockColor } from "@/lib/types";
@@ -184,5 +187,44 @@ describe("pickColorFlip", () => {
       expect(flip).not.toBeNull();
       expect(flip!.toColor).toBe("yellow");
     }
+  });
+});
+
+describe("registration", () => {
+  it("spaces slips between 7 and 19 seconds", () => {
+    const rng = mulberry32(11);
+    for (let i = 0; i < 200; i++) {
+      const delay = nextRegistrationDelay(rng);
+      expect(delay).toBeGreaterThanOrEqual(7000);
+      expect(delay).toBeLessThan(19000);
+    }
+  });
+
+  it("holds the slip far shorter than the gap between slips", () => {
+    expect(registrationHoldMs).toBeLessThan(7000);
+    expect(registrationHoldMs).toBeGreaterThan(0);
+  });
+
+  it("offsets by a fraction of a cell, in every direction", () => {
+    const rng = mulberry32(12);
+    let minAngle = Infinity;
+    let maxAngle = -Infinity;
+    for (let i = 0; i < 400; i++) {
+      const { x, z } = nextRegistrationOffset(rng);
+      const distance = Math.hypot(x, z);
+      expect(distance).toBeGreaterThanOrEqual(0.08 - 1e-12);
+      expect(distance).toBeLessThan(0.3);
+      const angle = Math.atan2(z, x);
+      minAngle = Math.min(minAngle, angle);
+      maxAngle = Math.max(maxAngle, angle);
+    }
+    // Spread over the full circle rather than biased to one quadrant.
+    expect(maxAngle - minAngle).toBeGreaterThan(Math.PI * 1.9);
+  });
+
+  it("is deterministic for a given seed", () => {
+    const a = nextRegistrationOffset(mulberry32(5));
+    const b = nextRegistrationOffset(mulberry32(5));
+    expect(a).toEqual(b);
   });
 });

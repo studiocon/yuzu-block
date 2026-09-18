@@ -20,6 +20,11 @@ const REVEAL_DELAY_MIN_MS = 900;
 const REVEAL_DELAY_MAX_MS = 1800;
 const COLOR_DRIFT_DELAY_MIN_MS = 2500;
 const COLOR_DRIFT_DELAY_MAX_MS = 4000;
+const REGISTRATION_DELAY_MIN_MS = 7000;
+const REGISTRATION_DELAY_MAX_MS = 19000;
+const REGISTRATION_HOLD_MS = 140;
+const REGISTRATION_MIN_CELLS = 0.08;
+const REGISTRATION_MAX_CELLS = 0.3;
 
 function ringOf(block: Block): number {
   return Math.max(Math.abs(block.x), Math.abs(block.z));
@@ -156,4 +161,26 @@ export function pickColorFlip(
   }
 
   return null;
+}
+
+/** Gap until the ring plate next slips off register, in ms. */
+export function nextRegistrationDelay(rng: () => number): number {
+  return (
+    REGISTRATION_DELAY_MIN_MS + rng() * (REGISTRATION_DELAY_MAX_MS - REGISTRATION_DELAY_MIN_MS)
+  );
+}
+
+/** How long it stays off register before snapping back, in ms. */
+export const registrationHoldMs = REGISTRATION_HOLD_MS;
+
+/**
+ * A misregistration offset: a small displacement in cells, in a random
+ * direction. Small enough to read as a press fault rather than as the
+ * grid having moved.
+ */
+export function nextRegistrationOffset(rng: () => number): { x: number; z: number } {
+  const angle = rng() * Math.PI * 2;
+  const distance =
+    REGISTRATION_MIN_CELLS + rng() * (REGISTRATION_MAX_CELLS - REGISTRATION_MIN_CELLS);
+  return { x: Math.cos(angle) * distance, z: Math.sin(angle) * distance };
 }
