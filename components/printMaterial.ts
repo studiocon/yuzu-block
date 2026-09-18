@@ -14,7 +14,7 @@
 //    of surface are dropped using the neighbour mask.
 
 import * as THREE from "three";
-import { YUZU_WHITE } from "@/lib/palette";
+import { SURFACE_BORDER } from "@/lib/palette";
 
 // BoxGeometry (default 1x1x1 segment) emits exactly 24 vertices, 4 per
 // face, in the fixed order +x, -x, +y, -y, +z, -z — verified by reading
@@ -28,7 +28,7 @@ import { YUZU_WHITE } from "@/lib/palette";
 // into a hard cross-hatch, and measured worse for flicker (3.6% of pixels
 // changing per frame against 2.4%). Denser and slightly irregular is the
 // calmer read.
-const FACE_COVERAGE = [0.86, 0.86, 1.0, 0.52, 0.7, 0.7]; // +x, -x, +y, -y, +z, -z
+const FACE_COVERAGE = [0.9, 0.9, 1.0, 0.62, 0.8, 0.8]; // +x, -x, +y, -y, +z, -z
 const VERTS_PER_FACE = 4;
 
 /**
@@ -91,7 +91,7 @@ void main() {
 `;
 
 const FRAGMENT_SHADER = /* glsl */ `
-uniform vec3 uPaper;
+uniform vec3 uUnder;
 
 varying float vCoverage;
 varying float vFaceId;
@@ -125,10 +125,17 @@ void main() {
 
   // Hard threshold, never a blend: every pixel lands on a palette token
   // and no in-between colour is ever produced.
-  vec3 color = threshold < vCoverage ? vInk : uPaper;
+  //
+  // What shows between the dots is the stock the ink sits on, NOT the
+  // page. Using the page's own white here made every gap in the screen
+  // read as a hole punched through the solid, because it was the exact
+  // colour showing through the real voids beside it. A warmer stock
+  // keeps the screen as surface, and leaves the actual voids — cells
+  // with no block, which are silent days — the only true white.
+  vec3 color = threshold < vCoverage ? vInk : uUnder;
 
-  // Paper is drawn, never discarded: the canvas is transparent, so a
-  // discard would show the page grid straight through the solid.
+  // The stock is drawn, never discarded: the canvas is transparent, so
+  // a discard would show the page grid straight through the solid.
   gl_FragColor = vec4(color, 1.0);
 
   #include <colorspace_fragment>
@@ -168,7 +175,7 @@ export function createPrintMaterial(): THREE.ShaderMaterial {
     fragmentShader: FRAGMENT_SHADER,
     side: THREE.FrontSide,
     uniforms: {
-      uPaper: { value: new THREE.Color(YUZU_WHITE) },
+      uUnder: { value: new THREE.Color(SURFACE_BORDER) },
     },
   });
 }
