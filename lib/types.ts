@@ -21,13 +21,17 @@ export interface RingAggregate {
   buckets: WeekBucket[];
 }
 
-export type BlockColor = "yellow" | "zest";
-
 export interface Block {
   x: number;
   y: number;
   z: number;
-  color: BlockColor;
+  /**
+   * Position on the ink ramp, 0..1. The renderer resolves it against the
+   * three palette stops and dithers between the two it falls between, so
+   * a column can sit anywhere along the ramp rather than being one of a
+   * fixed set of colours. See lib/tone.ts.
+   */
+  tone: number;
 }
 
 // Bounds of the blocks actually emitted — not of the nominal ring grid.

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { aggregateToBlocks } from "@/lib/aggregate-to-blocks";
+import { toneField } from "@/lib/tone";
 import { generateAggregate } from "@/lib/mock-aggregate";
-import type { RingAggregate } from "@/lib/types";
+import type { Block, RingAggregate } from "@/lib/types";
 
 const NOW = new Date("2026-12-31T00:00:00.000Z");
 
@@ -67,20 +68,14 @@ describe("aggregateToBlocks", () => {
     }
   });
 
-  it("only ever produces yellow or zest colors", () => {
-    const agg = fullYearAggregate("blocks-colors");
+  it("only ever produces tones inside the ramp", () => {
+    const agg = fullYearAggregate("blocks-tone-range");
     const scene = aggregateToBlocks(agg);
+    expect(scene.blocks.length).toBeGreaterThan(0);
     for (const block of scene.blocks) {
-      expect(["yellow", "zest"]).toContain(block.color);
+      expect(block.tone).toBeGreaterThanOrEqual(0);
+      expect(block.tone).toBeLessThanOrEqual(1);
     }
-  });
-
-  it("produces at least one zest block when there are >= 4 sufficient buckets", () => {
-    const agg = fullYearAggregate("blocks-zest-presence");
-    const sufficientCount = agg.buckets.filter((b) => b.sufficient).length;
-    expect(sufficientCount).toBeGreaterThanOrEqual(4);
-    const scene = aggregateToBlocks(agg);
-    expect(scene.blocks.some((b) => b.color === "zest")).toBe(true);
   });
 
   it("reports bounds of the blocks actually emitted, not of the ring grid", () => {
@@ -215,70 +210,118 @@ describe("aggregateToBlocks", () => {
   });
 });
 
-describe("colour placement", () => {
-  /** Zest share of the columns of one ring. */
-  function ringZestShare(blocks: { x: number; z: number; color: string }[], ring: number): number {
-    const columns = new Map<string, string>();
+describe("tone placement", () => {
+  /** Distinct tones among the columns of one ring. */
+  function ringTones(blocks: Block[], ring: number): number[] {
+    const columns = new Map<string, number>();
     for (const b of blocks) {
       if (Math.max(Math.abs(b.x), Math.abs(b.z)) !== ring) continue;
-      columns.set(`${b.x},${b.z}`, b.color);
+      columns.set(`${b.x},${b.z}`, b.tone);
     }
-    if (columns.size === 0) return NaN;
-    let zest = 0;
-    for (const c of columns.values()) if (c === "zest") zest++;
-    return zest / columns.size;
+    return [...columns.values()];
   }
 
-  it("mixes both tokens within a ring instead of colouring it whole", () => {
+  it("spreads a ring across the ramp instead of ruling on the week", () => {
     // The old rule was a per-ring verdict, so every populated ring came
-    // out entirely one token and the year read as solid bands.
-    const scene = aggregateToBlocks(fullYearAggregate("blocks-colour-mix"));
-    const populated = [...new Set(scene.blocks.map((b) => Math.max(Math.abs(b.x), Math.abs(b.z))))]
-      .filter((r) => r >= 4)
-      .sort((a, b) => a - b);
-
-    const mixed = populated.filter((r) => {
-      const share = ringZestShare(scene.blocks, r);
-      return share > 0 && share < 1;
-    });
-
-    expect(populated.length).toBeGreaterThan(8);
-    // Rings big enough to hold a mix essentially always do.
-    expect(mixed.length / populated.length).toBeGreaterThan(0.9);
-  });
-
-  it("never fills a sizeable ring entirely with one token", () => {
-    const scene = aggregateToBlocks(fullYearAggregate("blocks-colour-whole"));
+    // out entirely one token and the year read as solid bands. The ramp
+    // compresses the low end, so a ring sitting there legitimately has a
+    // small spread — what has to hold is that it is never one value.
+    const scene = aggregateToBlocks(fullYearAggregate("blocks-tone-spread"));
+    let checked = 0;
     for (let r = 10; r <= 40; r++) {
-      const share = ringZestShare(scene.blocks, r);
-      if (Number.isNaN(share)) continue;
-      expect(share).toBeGreaterThan(0);
-      expect(share).toBeLessThan(1);
+      const tones = ringTones(scene.blocks, r);
+      if (tones.length < 8) continue;
+      checked++;
+      expect(new Set(tones).size).toBeGreaterThan(3);
     }
+    expect(checked).toBeGreaterThan(10);
   });
 
-  it("gives wordier weeks a denser share of the second token", () => {
-    const agg = fullYearAggregate("blocks-colour-signal");
-    const scene = aggregateToBlocks(agg);
+  it("keeps most of the solid on the first ink and very little on the third", () => {
+    // The third ink is only tolerable while it is scarce, and the ramp's
+    // gamma is what keeps it that way.
+    const scene = aggregateToBlocks(fullYearAggregate("blocks-tone-share"), {
+      expressive: true,
+    });
+    const tones = scene.blocks.map((b) => b.tone);
+    const mean = tones.reduce((n, t) => n + t, 0) / tones.length;
+    const nearThird = tones.filter((t) => t > 0.8).length / tones.length;
 
-    const paired: Array<{ wpr: number; share: number }> = [];
+    expect(mean).toBeLessThan(0.45);
+    expect(nearThird).toBeLessThan(0.12);
+  });
+
+  it("sweeps across the footprint rather than being pure noise", () => {
+    // Per-column noise is deliberately heavy, so neighbours often differ.
+    // What has to survive is the large-scale sweep: tone should still
+    // track the smooth field across the whole solid.
+    const scene = aggregateToBlocks(fullYearAggregate("blocks-tone-field"), {
+      expressive: true,
+    });
+    const byCell = new Map<string, number>();
+    for (const b of scene.blocks) byCell.set(`${b.x},${b.z}`, b.tone);
+
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const [key, tone] of byCell) {
+      const [x, z] = key.split(",").map(Number);
+      xs.push(toneField(x, z, 2026));
+      ys.push(tone);
+    }
+
+    const mean = (v: number[]) => v.reduce((n, a) => n + a, 0) / v.length;
+    const mx = mean(xs);
+    const my = mean(ys);
+    let num = 0;
+    let dx = 0;
+    let dy = 0;
+    for (let i = 0; i < xs.length; i++) {
+      num += (xs[i] - mx) * (ys[i] - my);
+      dx += (xs[i] - mx) ** 2;
+      dy += (ys[i] - my) ** 2;
+    }
+    const correlation = num / Math.sqrt(dx * dy);
+
+    // This is the sweep-against-noise balance, not a target: the noise
+    // share is deliberately heavy, so roughly half the variance being
+    // the field is the intended mix. The guard is that the field is not
+    // drowned out entirely.
+    expect(byCell.size).toBeGreaterThan(300);
+    expect(correlation).toBeGreaterThan(0.45);
+  });
+
+  it("honours the measurement unless asked not to", () => {
+    const agg = fullYearAggregate("blocks-tone-signal");
+    const measured = aggregateToBlocks(agg);
+    const expressive = aggregateToBlocks(agg, { expressive: true });
+    expect(measured.blocks.map((b) => b.tone)).not.toEqual(
+      expressive.blocks.map((b) => b.tone),
+    );
+
+    const meanFor = (blocks: Block[], ring: number) => {
+      const t = ringTones(blocks, ring);
+      return t.reduce((n, v) => n + v, 0) / t.length;
+    };
+    const paired: Array<{ wpr: number; tone: number }> = [];
     for (const bucket of agg.buckets) {
       if (!bucket.sufficient || !bucket.recordCount || !bucket.wordCount) continue;
-      if (bucket.index < 6) continue; // tiny rings are too coarse to rank
-      const share = ringZestShare(scene.blocks, bucket.index);
-      if (Number.isNaN(share)) continue;
-      paired.push({ wpr: bucket.wordCount / bucket.recordCount, share });
+      if (bucket.index < 6) continue;
+      const tones = ringTones(measured.blocks, bucket.index);
+      if (tones.length < 8) continue;
+      paired.push({
+        wpr: bucket.wordCount / bucket.recordCount,
+        tone: meanFor(measured.blocks, bucket.index),
+      });
     }
-
     expect(paired.length).toBeGreaterThan(10);
     const sorted = [...paired].sort((a, b) => a.wpr - b.wpr);
     const half = Math.floor(sorted.length / 2);
-    const mean = (xs: typeof sorted) => xs.reduce((n, p) => n + p.share, 0) / xs.length;
+    const mean = (xs: typeof sorted) => xs.reduce((n, p) => n + p.tone, 0) / xs.length;
     expect(mean(sorted.slice(sorted.length - half))).toBeGreaterThan(mean(sorted.slice(0, half)));
   });
 
-  it("keeps the colour layout stable for a given year", () => {
-    const agg = fullYearAggregate("blocks-colour-stable");
+  it("keeps the tone layout stable for a given year", () => {
+    const agg = fullYearAggregate("blocks-tone-stable");
     expect(aggregateToBlocks(agg).blocks).toEqual(aggregateToBlocks(agg).blocks);
   });
 });

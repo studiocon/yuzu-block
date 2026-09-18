@@ -21,7 +21,7 @@ const OPTIONS: ExtentOptions = {
 };
 
 function block(x: number, y: number, z: number): Block {
-  return { x, y, z, color: "yellow" };
+  return { x, y, z, tone: 0.2 };
 }
 
 describe("columnsOf", () => {

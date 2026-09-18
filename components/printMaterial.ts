@@ -14,7 +14,8 @@
 //    of surface are dropped using the neighbour mask.
 
 import * as THREE from "three";
-import { SURFACE_BORDER } from "@/lib/palette";
+import { SURFACE_BORDER, YUZU_ASH, YUZU_YELLOW, YUZU_ZEST } from "@/lib/palette";
+import { RAMP_SECOND_STOP } from "@/lib/tone";
 
 // BoxGeometry (default 1x1x1 segment) emits exactly 24 vertices, 4 per
 // face, in the fixed order +x, -x, +y, -y, +z, -z — verified by reading
@@ -72,16 +73,17 @@ const BAYER_THRESHOLDS = bayerMatrix(BAYER_SIZE).map(
 const VERTEX_SHADER = /* glsl */ `
 attribute float aCoverage;
 attribute float aFaceId;
+attribute float aTone;
 
 varying float vCoverage;
 varying float vFaceId;
-varying vec3 vInk;
+varying float vTone;
 varying vec3 vSolid;
 
 void main() {
   vCoverage = aCoverage;
   vFaceId = aFaceId;
-  vInk = instanceColor;
+  vTone = aTone;
 
   vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
   vSolid = world.xyz;
@@ -92,10 +94,13 @@ void main() {
 
 const FRAGMENT_SHADER = /* glsl */ `
 uniform vec3 uUnder;
+uniform vec3 uStopA;
+uniform vec3 uStopB;
+uniform vec3 uStopC;
 
 varying float vCoverage;
 varying float vFaceId;
-varying vec3 vInk;
+varying float vTone;
 varying vec3 vSolid;
 
 const float BAYER[${BAYER_THRESHOLDS.length}] = float[${BAYER_THRESHOLDS.length}](
@@ -123,6 +128,24 @@ void main() {
   cell = (cell + ${BAYER_SIZE}) & ${BAYER_SIZE - 1};
   float threshold = BAYER[cell.y * ${BAYER_SIZE} + cell.x];
 
+  // A second, decorrelated read of the same screen decides WHICH ink.
+  // Offsetting the cell keeps the two decisions from agreeing, which
+  // would make the ramp step rather than pass through.
+  ivec2 mixCell = (cell + ivec2(${BAYER_SIZE / 2}, 1)) & ${BAYER_SIZE - 1};
+  float mixThreshold = BAYER[mixCell.y * ${BAYER_SIZE} + mixCell.x];
+
+  // Three stops, two inks live at a time. Between them the screen is
+  // what makes the transition: neighbouring dots take different stops,
+  // and at any distance the eye reads the ratio as one colour. Still no
+  // blending — every dot is exactly one palette token.
+  float second = ${RAMP_SECOND_STOP.toFixed(3)};
+  vec3 lower = vTone < second ? uStopA : uStopB;
+  vec3 upper = vTone < second ? uStopB : uStopC;
+  float along = vTone < second
+    ? vTone / second
+    : (vTone - second) / (1.0 - second);
+  vec3 vInk = mixThreshold < along ? upper : lower;
+
   // Hard threshold, never a blend: every pixel lands on a palette token
   // and no in-between colour is ever produced.
   //
@@ -143,14 +166,15 @@ void main() {
 `;
 
 /**
- * A block geometry carrying the per-face ink coverage and face index. No
- * `color` attribute: the token colour arrives as `instanceColor`, which
- * three declares for any material on an InstancedMesh whose instance
- * colours have been set before the first render (WebGLPrograms keys
- * `instancingColor` off the object, not the material) — so
- * `InstancedMesh.setColorAt` must run during scene build.
+ * A block geometry carrying the per-face ink coverage and face index,
+ * plus the per-instance ramp position. `instanceColor` is not used: a
+ * column's colour is a scalar the shader resolves against the ramp, not
+ * a fixed token, so one float per instance replaces three.
  */
-export function createPrintGeometry(blockScale: number): THREE.BoxGeometry {
+export function createPrintGeometry(
+  blockScale: number,
+  tones: Float32Array,
+): THREE.BoxGeometry {
   const geometry = new THREE.BoxGeometry(blockScale, blockScale, blockScale);
 
   const coverage = new Float32Array(FACE_COVERAGE.length * VERTS_PER_FACE);
@@ -165,6 +189,7 @@ export function createPrintGeometry(blockScale: number): THREE.BoxGeometry {
 
   geometry.setAttribute("aCoverage", new THREE.Float32BufferAttribute(coverage, 1));
   geometry.setAttribute("aFaceId", new THREE.Float32BufferAttribute(faceIds, 1));
+  geometry.setAttribute("aTone", new THREE.InstancedBufferAttribute(tones, 1));
 
   return geometry;
 }
@@ -176,6 +201,9 @@ export function createPrintMaterial(): THREE.ShaderMaterial {
     side: THREE.FrontSide,
     uniforms: {
       uUnder: { value: new THREE.Color(SURFACE_BORDER) },
+      uStopA: { value: new THREE.Color(YUZU_YELLOW) },
+      uStopB: { value: new THREE.Color(YUZU_ZEST) },
+      uStopC: { value: new THREE.Color(YUZU_ASH) },
     },
   });
 }

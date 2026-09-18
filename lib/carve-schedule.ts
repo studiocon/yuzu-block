@@ -9,12 +9,13 @@
 // holding the overall zest proportion close to the snapshot's.
 
 import { hashString, mulberry32 } from "./seed";
-import type { Block, BlockColor } from "./types";
+import type { Block } from "./types";
 
 const HIDDEN_FRACTION = 0.1;
 const OUTER_RING_COUNT = 6;
 const OUTER_RING_HIDE_FRACTION = 0.3;
-const PROPORTION_GUARD = 0.02;
+const MEAN_TONE_GUARD = 0.02;
+const TONE_STEP = 0.09;
 
 const REVEAL_DELAY_MIN_MS = 900;
 const REVEAL_DELAY_MAX_MS = 1800;
@@ -117,46 +118,54 @@ export function nextColorDriftDelay(rng: () => number): number {
   );
 }
 
-export interface ColorFlip {
+export interface ToneDrift {
   columnKey: string;
   indices: number[];
-  toColor: BlockColor;
+  toTone: number;
 }
 
 /**
- * Picks one column to flip fully between yellow and zest, keeping the
- * overall zest proportion within `PROPORTION_GUARD` of `targetZestRatio`
- * (the server snapshot's proportion) — e.g. once zest is already above
- * that band, only a zest-to-yellow flip can be returned, and vice versa.
- * Returns null when no column can be flipped in either direction without
- * breaching the guard, or when there is nothing to flip.
+ * Picks one column and nudges it along the ink ramp, holding the mean
+ * tone within `MEAN_TONE_GUARD` of the snapshot's. The guard is what
+ * stops the drift walking the whole solid toward one end of the ramp
+ * over an afternoon: once the mean is above the band only a step
+ * downward can be returned, and vice versa.
+ *
+ * Whole columns move together, so the surface keeps reading as columns
+ * rather than as per-block noise. Returns null when no column can move
+ * in either direction without breaching the guard.
  */
-export function pickColorFlip(
+export function pickToneDrift(
   columns: Map<string, number[]>,
-  currentColors: BlockColor[],
-  targetZestRatio: number,
+  currentTones: number[],
+  targetMeanTone: number,
   rng: () => number,
-): ColorFlip | null {
+): ToneDrift | null {
   const keys = [...columns.keys()];
-  if (keys.length === 0 || currentColors.length === 0) return null;
+  if (keys.length === 0 || currentTones.length === 0) return null;
 
-  const totalBlocks = currentColors.length;
-  const zestCount = currentColors.reduce((n, c) => (c === "zest" ? n + 1 : n), 0);
-  const upperBound = targetZestRatio + PROPORTION_GUARD;
-  const lowerBound = targetZestRatio - PROPORTION_GUARD;
+  const total = currentTones.length;
+  const sum = currentTones.reduce((n, t) => n + t, 0);
+  const upperBound = targetMeanTone + MEAN_TONE_GUARD;
+  const lowerBound = targetMeanTone - MEAN_TONE_GUARD;
 
-  // Walk columns starting from a random offset so the same column isn't
-  // always favored, but still deterministic given `rng`.
+  // Walk from a random offset so the same column is not always favoured,
+  // but deterministically given `rng`.
   const start = Math.floor(rng() * keys.length);
+  const stepUpFirst = rng() < 0.5;
+
   for (let i = 0; i < keys.length; i++) {
     const key = keys[(start + i) % keys.length];
     const indices = columns.get(key)!;
-    const currentColor = currentColors[indices[0]];
-    const toColor: BlockColor = currentColor === "yellow" ? "zest" : "yellow";
-    const delta = toColor === "zest" ? indices.length : -indices.length;
-    const newRatio = (zestCount + delta) / totalBlocks;
-    if (newRatio <= upperBound && newRatio >= lowerBound) {
-      return { columnKey: key, indices, toColor };
+    const from = currentTones[indices[0]];
+
+    for (const step of stepUpFirst ? [TONE_STEP, -TONE_STEP] : [-TONE_STEP, TONE_STEP]) {
+      const toTone = Math.min(1, Math.max(0, from + step));
+      if (toTone === from) continue;
+      const newMean = (sum + (toTone - from) * indices.length) / total;
+      if (newMean <= upperBound && newMean >= lowerBound) {
+        return { columnKey: key, indices, toTone };
+      }
     }
   }
 

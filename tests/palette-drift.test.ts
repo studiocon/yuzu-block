@@ -7,6 +7,7 @@ import {
   INK_MUTED,
   INK_SECONDARY,
   SURFACE_BORDER,
+  YUZU_ASH,
   YUZU_WHITE,
   YUZU_YELLOW,
   YUZU_ZEST,
@@ -33,6 +34,7 @@ describe("palette drift", () => {
   const pairs: Array<[string, string]> = [
     ["yuzu-yellow", YUZU_YELLOW],
     ["yuzu-zest", YUZU_ZEST],
+    ["yuzu-ash", YUZU_ASH],
     ["yuzu-white", YUZU_WHITE],
     ["ink", INK],
     ["ink-secondary", INK_SECONDARY],

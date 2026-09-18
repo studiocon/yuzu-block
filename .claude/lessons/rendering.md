@@ -50,6 +50,25 @@ It is anchored to the faces' own plane, from world position rather than
 per-face UV, at a deliberately fractional number of cells per block
 (3.0) so no two cubes carry the same stamp.
 
+## Shape a distribution by rank, not by scaling
+
+The ink ramp wants a known share per stop. The first attempt raised
+field-plus-noise to a power, on the assumption the input was roughly
+flat. It is not: a smooth field summed with uniform noise piles up
+around the middle, nothing reached the 0.787 the third stop needs, and
+the third ink came out at **exactly 0% of rendered pixels** while the
+share maths said 10%.
+
+Ranking the columns first makes the input flat by construction, so the
+gamma acts on the distribution it was designed against. Measured ink
+areas afterwards: 57.7 / 34.6 / 7.7 per cent, against 52 / 38 / 10
+predicted.
+
+Measure rendered ink shares directly rather than reasoning about them —
+count exact token colours in a `readPixels` histogram. Any assumption
+about the shape of a generated distribution is worth one measurement
+before it is worth an argument.
+
 ## Tried and measured worse
 
 Snapping face coverage to the screen's sixteenths, so surviving dots

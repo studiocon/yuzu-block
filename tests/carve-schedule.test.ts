@@ -6,16 +6,16 @@ import {
   nextRegistrationDelay,
   nextRegistrationOffset,
   nextRevealDelay,
-  pickColorFlip,
+  pickToneDrift,
   registrationHoldMs,
   selectInitiallyHidden,
 } from "@/lib/carve-schedule";
-import type { Block, BlockColor } from "@/lib/types";
+import type { Block } from "@/lib/types";
 
-function singleColumn(height: number, color: BlockColor = "yellow"): Block[] {
+function singleColumn(height: number, tone = 0.2): Block[] {
   const blocks: Block[] = [];
   for (let y = 0; y < height; y++) {
-    blocks.push({ x: 0, y, z: 0, color });
+    blocks.push({ x: 0, y, z: 0, tone });
   }
   return blocks;
 }
@@ -36,9 +36,9 @@ function multiRingScene(): Block[] {
           ];
     for (const [x, z] of cells) {
       const height = 3 + (ring % 3);
-      const color: BlockColor = ring % 2 === 0 ? "yellow" : "zest";
+      const tone = ring % 2 === 0 ? 0.2 : 0.7;
       for (let y = 0; y < height; y++) {
-        blocks.push({ x, y, z, color });
+        blocks.push({ x, y, z, tone });
       }
     }
   }
@@ -48,9 +48,9 @@ function multiRingScene(): Block[] {
 describe("groupColumns", () => {
   it("sorts each column's indices by ascending height", () => {
     const blocks: Block[] = [
-      { x: 0, y: 2, z: 0, color: "yellow" },
-      { x: 0, y: 0, z: 0, color: "yellow" },
-      { x: 0, y: 1, z: 0, color: "yellow" },
+      { x: 0, y: 2, z: 0, tone: 0.2 },
+      { x: 0, y: 0, z: 0, tone: 0.2 },
+      { x: 0, y: 1, z: 0, tone: 0.2 },
     ];
     const columns = groupColumns(blocks);
     const indices = columns.get("0,0")!;
@@ -128,65 +128,67 @@ describe("nextColorDriftDelay", () => {
   });
 });
 
-describe("pickColorFlip", () => {
-  it("returns null when there are no columns", () => {
-    expect(pickColorFlip(new Map(), [], 0.25, () => 0)).toBeNull();
-  });
-
-  it("never returns a flip that would breach the ±2pp proportion guard", () => {
-    // 4 columns of 2 blocks each: exactly half zest (2 columns), matching
-    // the target. Flipping any single column moves the ratio by 2/8 = 25pp,
-    // far outside the 2pp guard in either direction, so no flip is legal.
-    const blocks: Block[] = [];
-    const colors: BlockColor[] = [];
-    for (let col = 0; col < 4; col++) {
-      const color: BlockColor = col < 2 ? "zest" : "yellow";
-      for (let y = 0; y < 2; y++) {
-        blocks.push({ x: col, y, z: 0, color });
-        colors.push(color);
+describe("pickToneDrift", () => {
+  function columnsOfTones(tones: number[][]): {
+    columns: Map<string, number[]>;
+    flat: number[];
+  } {
+    const columns = new Map<string, number[]>();
+    const flat: number[] = [];
+    tones.forEach((column, col) => {
+      const indices: number[] = [];
+      for (const tone of column) {
+        indices.push(flat.length);
+        flat.push(tone);
       }
-    }
-    const columns = groupColumns(blocks);
-    for (const rngValue of [0, 0.2, 0.5, 0.8, 0.99]) {
-      expect(pickColorFlip(columns, colors, 0.5, () => rngValue)).toBeNull();
+      columns.set(`${col},0`, indices);
+    });
+    return { columns, flat };
+  }
+
+  it("returns null when there is nothing to move", () => {
+    expect(pickToneDrift(new Map(), [], 0.3, () => 0)).toBeNull();
+  });
+
+  it("moves one whole column, by one step, staying inside the ramp", () => {
+    const { columns, flat } = columnsOfTones(Array.from({ length: 40 }, () => [0.4, 0.4, 0.4]));
+    const drift = pickToneDrift(columns, flat, 0.4, () => 0);
+    expect(drift).not.toBeNull();
+    expect(drift!.indices).toHaveLength(3);
+    expect(Math.abs(drift!.toTone - 0.4)).toBeCloseTo(0.09, 10);
+    expect(drift!.toTone).toBeGreaterThanOrEqual(0);
+    expect(drift!.toTone).toBeLessThanOrEqual(1);
+  });
+
+  it("will not push the mean outside the guard", () => {
+    // One column out of two is half the solid, so either step blows the
+    // 0.02 guard and there is nothing legal to do.
+    const { columns, flat } = columnsOfTones([[0.4], [0.4]]);
+    for (const rngValue of [0, 0.25, 0.5, 0.75, 0.99]) {
+      expect(pickToneDrift(columns, flat, 0.4, () => rngValue)).toBeNull();
     }
   });
 
-  it("allows a flip that stays within the guard", () => {
-    // 100 single-block columns, 50 zest / 50 yellow (ratio 0.5). Flipping
-    // one column moves the ratio by 1pp, inside the 2pp guard.
-    const blocks: Block[] = [];
-    const colors: BlockColor[] = [];
-    for (let col = 0; col < 100; col++) {
-      const color: BlockColor = col < 50 ? "zest" : "yellow";
-      blocks.push({ x: col, y: 0, z: 0, color });
-      colors.push(color);
-    }
-    const columns = groupColumns(blocks);
-    const flip = pickColorFlip(columns, colors, 0.5, () => 0);
-    expect(flip).not.toBeNull();
-    expect(flip!.indices.length).toBe(1);
+  it("pulls back toward the target when the mean has run high", () => {
+    const { columns, flat } = columnsOfTones(Array.from({ length: 60 }, () => [0.9]));
+    const drift = pickToneDrift(columns, flat, 0.88, () => 0);
+    expect(drift).not.toBeNull();
+    expect(drift!.toTone).toBeLessThan(0.9);
   });
 
-  it("only allows the corrective direction once the ratio already exceeds the guard", () => {
-    // 100 single-block columns, 53 zest / 47 yellow: ratio 0.53 already
-    // sits just above the [0.48, 0.52] guard around a 0.5 target. A
-    // zest-to-yellow flip lands exactly on the boundary (0.52, legal); a
-    // yellow-to-zest flip would push it further out (0.54, illegal) — so
-    // whenever a flip is returned here, it must be the corrective one.
-    const blocks: Block[] = [];
-    const colors: BlockColor[] = [];
-    for (let col = 0; col < 100; col++) {
-      const color: BlockColor = col < 53 ? "zest" : "yellow";
-      blocks.push({ x: col, y: 0, z: 0, color });
-      colors.push(color);
-    }
-    const columns = groupColumns(blocks);
-    for (const rngValue of [0, 0.1, 0.3, 0.5, 0.7, 0.9]) {
-      const flip = pickColorFlip(columns, colors, 0.5, () => rngValue);
-      expect(flip).not.toBeNull();
-      expect(flip!.toColor).toBe("yellow");
-    }
+  it("pushes back up when the mean has run low", () => {
+    const { columns, flat } = columnsOfTones(Array.from({ length: 60 }, () => [0.1]));
+    const drift = pickToneDrift(columns, flat, 0.12, () => 0);
+    expect(drift).not.toBeNull();
+    expect(drift!.toTone).toBeGreaterThan(0.1);
+  });
+
+  it("is deterministic for a given rng", () => {
+    const a = columnsOfTones(Array.from({ length: 30 }, (_, i) => [0.3 + i * 0.01]));
+    const b = columnsOfTones(Array.from({ length: 30 }, (_, i) => [0.3 + i * 0.01]));
+    expect(pickToneDrift(a.columns, a.flat, 0.45, mulberry32(3))).toEqual(
+      pickToneDrift(b.columns, b.flat, 0.45, mulberry32(3)),
+    );
   });
 });
 

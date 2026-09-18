@@ -1,5 +1,6 @@
 import { hashString } from "./seed";
-import type { Block, BlockColor, RingAggregate, SceneSpec, WeekBucket } from "./types";
+import { toneBase, tonesFromBases } from "./tone";
+import type { Block, RingAggregate, SceneSpec, WeekBucket } from "./types";
 
 const DEFAULT_MAX_HEIGHT = 12;
 
@@ -56,27 +57,12 @@ function filledCells(
   return [cells[minIndex]];
 }
 
-// Share of a ring's columns that take the second token. A ring is never
-// wholly one colour or the other: at the low end a few columns carry it,
-// at the high end it is the majority but never all. Colour is a per-ring
-// QUANTITY scattered over the ring, not a per-ring verdict.
-const ZEST_SHARE_MIN = 0.06;
-const ZEST_SHARE_MAX = 0.62;
-
 /**
- * Share of each sufficient bucket's columns that should take "zest",
- * from words per record scaled across the year.
- *
- * This used to be a verdict: the top quartile of weeks came out wholly
- * zest, everything else wholly yellow. That put the whole signal into a
- * handful of solid concentric bands — the data was legible but the
- * surface was inert, and a week one word above the cut looked nothing
- * like the week below it. A share spreads the same measure over the
- * ring, so a wordier week reads as denser rather than as a different
- * object, and the boundary between two adjacent weeks stops being a
- * cliff.
+ * Each sufficient week's words-per-record, scaled to [0,1] across the
+ * year. This is the measurement the colour honours when there is a real
+ * one to honour.
  */
-function zestShareByBucketIndex(buckets: WeekBucket[]): Map<number, number> {
+function signalByBucketIndex(buckets: WeekBucket[]): Map<number, number> {
   const sufficientBuckets = buckets.filter((b) => b.sufficient && b.recordCount && b.wordCount);
   const wordsPerRecord = sufficientBuckets.map(
     (b) => (b.wordCount as number) / (b.recordCount as number),
@@ -86,33 +72,24 @@ function zestShareByBucketIndex(buckets: WeekBucket[]): Map<number, number> {
   const highest = Math.max(...wordsPerRecord);
   const span = highest - lowest;
 
-  const shares = new Map<number, number>();
+  const signals = new Map<number, number>();
   for (const b of sufficientBuckets) {
     const wpr = (b.wordCount as number) / (b.recordCount as number);
-    // A year with no spread at all sits in the middle rather than at an
+    // A year with no spread at all sits mid-ramp rather than at an
     // arbitrary end.
-    const scaled = span > 0 ? (wpr - lowest) / span : 0.5;
-    shares.set(b.index, ZEST_SHARE_MIN + scaled * (ZEST_SHARE_MAX - ZEST_SHARE_MIN));
+    signals.set(b.index, span > 0 ? (wpr - lowest) / span : 0.5);
   }
-  return shares;
-}
-
-/**
- * Which of a ring's columns take "zest", from a per-column hash against
- * the ring's share. Keyed the same way as the silhouette — year, ring,
- * cell index, no date — so the colour layout is stable across snapshots
- * taken on different days of the same year.
- */
-function zestColumns(year: number, r: number, cellCount: number, share: number): boolean[] {
-  const picks: boolean[] = [];
-  for (let i = 0; i < cellCount; i++) {
-    picks.push(unitFromHash(`${year}:${r}:${i}:zest`) < share);
-  }
-  return picks;
+  return signals;
 }
 
 export interface AggregateToBlocksOptions {
   maxHeight?: number;
+  /**
+   * Drop the data signal from the colour and let the field and the noise
+   * alone decide it. Set for the mock, where there is no measurement to
+   * be faithful to and the only job is to look right.
+   */
+  expressive?: boolean;
 }
 
 export function aggregateToBlocks(
@@ -120,15 +97,25 @@ export function aggregateToBlocks(
   opts: AggregateToBlocksOptions = {},
 ): SceneSpec {
   const maxHeight = opts.maxHeight ?? DEFAULT_MAX_HEIGHT;
+  const expressive = opts.expressive ?? false;
 
   const sufficientBuckets = agg.buckets.filter((b) => b.sufficient && b.recordCount !== null);
   const maxRecordCount = sufficientBuckets.reduce(
     (max, b) => Math.max(max, b.recordCount as number),
     0,
   );
-  const zestShares = zestShareByBucketIndex(agg.buckets);
+  const signals = signalByBucketIndex(agg.buckets);
 
-  const blocks: Block[] = [];
+  // Columns are collected first so their tones can be ranked against
+  // one another before any block is emitted: the ramp's shape is
+  // defined against a flat ordering, not against the raw field.
+  interface Column {
+    x: number;
+    z: number;
+    height: number;
+    base: number;
+  }
+  const columns: Column[] = [];
 
   for (const bucket of agg.buckets) {
     if (!bucket.sufficient || bucket.recordCount === null || bucket.silenceDayRatio === null) {
@@ -141,40 +128,38 @@ export function aggregateToBlocks(
     const filled = filledCells(agg.year, r, cells, fillFraction);
     if (filled.length === 0) continue;
 
-    // Indexed by position in the full ring, so a column keeps its colour
+    // Indexed by position in the full ring, so a column keeps its tone
     // regardless of which of its neighbours survived the silhouette.
     const cellIndex = new Map(cells.map(([x, z], i) => [`${x},${z}`, i]));
-    const isZest = zestColumns(agg.year, r, cells.length, zestShares.get(r) ?? 0);
+    const signal = expressive ? null : (signals.get(r) ?? 0.5);
 
     const height =
       maxRecordCount > 0
         ? Math.max(1, Math.round((bucket.recordCount / maxRecordCount) * maxHeight))
         : 1;
     for (const [x, z] of filled) {
-      const color: BlockColor = isZest[cellIndex.get(`${x},${z}`) ?? 0] ? "zest" : "yellow";
-      for (let y = 0; y < height; y++) {
-        blocks.push({ x, y, z, color });
-      }
+      columns.push({
+        x,
+        z,
+        height,
+        base: toneBase({
+          x,
+          z,
+          year: agg.year,
+          ring: r,
+          cellIndex: cellIndex.get(`${x},${z}`) ?? 0,
+          signal,
+        }),
+      });
     }
   }
 
-  // A year can in principle roll no zest at all, most easily when only a
-  // couple of small rings are sufficient. Recolour the single lowest-
-  // rolling column rather than ship one flat token, mirroring how
-  // filledCells guarantees a silhouette.
-  if (blocks.length > 0 && !blocks.some((b) => b.color === "zest")) {
-    let best = 0;
-    let bestRoll = Infinity;
-    for (let i = 0; i < blocks.length; i++) {
-      const roll = unitFromHash(`${agg.year}:${blocks[i].x},${blocks[i].z}:zest-floor`);
-      if (roll < bestRoll) {
-        bestRoll = roll;
-        best = i;
-      }
-    }
-    const { x, z } = blocks[best];
-    for (const b of blocks) {
-      if (b.x === x && b.z === z) b.color = "zest";
+  const tones = tonesFromBases(columns.map((c) => c.base));
+  const blocks: Block[] = [];
+  for (let i = 0; i < columns.length; i++) {
+    const { x, z, height: columnHeight } = columns[i];
+    for (let y = 0; y < columnHeight; y++) {
+      blocks.push({ x, y, z, tone: tones[i] });
     }
   }
 

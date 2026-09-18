@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { YUZU_YELLOW, YUZU_ZEST } from "@/lib/palette";
 import { hashString, mulberry32 } from "@/lib/seed";
 import {
   groupColumns,
@@ -11,7 +10,7 @@ import {
   nextRegistrationDelay,
   nextRegistrationOffset,
   nextRevealDelay,
-  pickColorFlip,
+  pickToneDrift,
   registrationHoldMs,
   selectInitiallyHidden,
 } from "@/lib/carve-schedule";
@@ -23,7 +22,7 @@ import {
   projectedExtents,
   tiltElevation,
 } from "@/lib/ortho-fit";
-import type { Block, BlockColor, SceneSpec } from "@/lib/types";
+import type { Block, SceneSpec } from "@/lib/types";
 import { createGround } from "./groundMaterial";
 import { createPrintGeometry, createPrintMaterial } from "./printMaterial";
 
@@ -34,12 +33,8 @@ const BLOCK_SCALE = 1;
 
 // Elements per instance in InstancedMesh's backing buffers.
 const MATRIX_STRIDE = 16;
-const COLOR_STRIDE = 3;
+const TONE_STRIDE = 1;
 
-const COLOR_HEX: Record<BlockColor, string> = {
-  yellow: YUZU_YELLOW,
-  zest: YUZU_ZEST,
-};
 
 // The sculpture is framed to COVER the viewport: it runs off every edge
 // and under the page chrome. The lead copy sitting on top of it is the
@@ -104,7 +99,7 @@ function nudgeElevation(
 }
 
 function blockListSeed(blocks: Block[]): string {
-  return blocks.map((b) => `${b.x}.${b.y}.${b.z}.${b.color}`).join("|");
+  return blocks.map((b) => `${b.x}.${b.y}.${b.z}.${b.tone.toFixed(3)}`).join("|");
 }
 
 export interface BlockSceneProps {
@@ -329,7 +324,12 @@ function buildScene(
   const threeScene = new THREE.Scene();
   const blocks = scene.blocks;
 
-  const geometry = createPrintGeometry(BLOCK_SCALE);
+  // One float per instance instead of a fixed token: the shader
+  // resolves it against the ramp. Live tones start at the snapshot's and
+  // the drift edits this buffer in place.
+  const tones = new Float32Array(blocks.map((b) => b.tone));
+  const geometry = createPrintGeometry(BLOCK_SCALE, tones);
+  const toneAttribute = geometry.getAttribute("aTone") as THREE.InstancedBufferAttribute;
   const material = createPrintMaterial();
 
   // The plate the sculpture sits on: nominal ring grid, paper screen and
@@ -346,21 +346,15 @@ function buildScene(
   const quaternion = new THREE.Quaternion();
   const visibleScale = new THREE.Vector3(1, 1, 1);
   const hiddenScale = new THREE.Vector3(0, 0, 0);
-  const tmpColor = new THREE.Color();
 
-  // setColorAt has to run here, before the first render: three decides
-  // whether to declare `instanceColor` in the shader at program-compile
-  // time, from whether the mesh has instance colours at all.
   if (mesh) {
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
       position.set(b.x, b.y + 0.5, b.z);
       matrix.compose(position, quaternion, hiddenIndices.has(i) ? hiddenScale : visibleScale);
       mesh.setMatrixAt(i, matrix);
-      mesh.setColorAt(i, tmpColor.set(COLOR_HEX[b.color]));
     }
     mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     threeScene.add(mesh);
   }
 
@@ -424,10 +418,10 @@ function buildScene(
   const revealRng = mulberry32(hashString(`${seed}:reveal`));
   const driftRng = mulberry32(hashString(`${seed}:drift`));
 
-  const currentColors: BlockColor[] = blocks.map((b) => b.color);
+  const currentTones: number[] = blocks.map((b) => b.tone);
   const columns = groupColumns(blocks);
-  const zestCount = currentColors.reduce((n, c) => (c === "zest" ? n + 1 : n), 0);
-  const targetZestRatio = blocks.length > 0 ? zestCount / blocks.length : 0;
+  const targetMeanTone =
+    blocks.length > 0 ? currentTones.reduce((n, t) => n + t, 0) / blocks.length : 0;
 
   function hasHidden(): boolean {
     return hiddenPool.length > 0;
@@ -451,24 +445,22 @@ function buildScene(
 
   function driftColor(): void {
     if (!mesh) return;
-    const flip = pickColorFlip(columns, currentColors, targetZestRatio, driftRng);
-    if (!flip) return;
+    const drift = pickToneDrift(columns, currentTones, targetMeanTone, driftRng);
+    if (!drift) return;
 
     let min = Infinity;
     let max = -Infinity;
-    for (const index of flip.indices) {
-      currentColors[index] = flip.toColor;
-      mesh.setColorAt(index, tmpColor.set(COLOR_HEX[flip.toColor]));
+    for (const index of drift.indices) {
+      currentTones[index] = drift.toTone;
+      tones[index] = drift.toTone;
       if (index < min) min = index;
       if (index > max) max = index;
     }
 
-    if (mesh.instanceColor) {
-      // A column's blocks are emitted consecutively, so one span covers
-      // them; a wider span would still be correct, only less efficient.
-      mesh.instanceColor.addUpdateRange(min * COLOR_STRIDE, (max - min + 1) * COLOR_STRIDE);
-      mesh.instanceColor.needsUpdate = true;
-    }
+    // A column's blocks are emitted consecutively, so one span covers
+    // them; a wider span would still be correct, only less efficient.
+    toneAttribute.addUpdateRange(min * TONE_STRIDE, max - min + 1);
+    toneAttribute.needsUpdate = true;
   }
 
   function dispose() {
